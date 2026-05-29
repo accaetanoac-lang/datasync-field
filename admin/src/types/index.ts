@@ -126,6 +126,8 @@ export interface TechnicianReport {
   total_minutes: number;
   starlink_count: number;
   pen_drive_count: number;
+  starlink_minutes: number;
+  pen_drive_minutes: number;
   last_activity?: string;
 }
 

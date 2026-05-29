@@ -78,9 +78,11 @@ router.get('/technicians', async (req: Request, res: Response): Promise<void> =>
        COUNT(a.id) FILTER (WHERE a.status != 'no_use') AS visits,
        COUNT(a.id) FILTER (WHERE a.status = 'completed') AS machines_collected,
        COALESCE(SUM(a.duration_minutes) FILTER (WHERE a.status = 'completed'), 0) AS total_minutes,
-       COUNT(a.id) FILTER (WHERE a.method = 'starlink_data_sync') AS starlink_count,
-       COUNT(a.id) FILTER (WHERE a.method = 'pen_drive') AS pen_drive_count,
-       MAX(a.created_at) AS last_activity
+       COUNT(a.id) FILTER (WHERE a.method = 'starlink_data_sync' AND a.status = 'completed') AS starlink_count,
+       COUNT(a.id) FILTER (WHERE a.method = 'pen_drive' AND a.status = 'completed') AS pen_drive_count,
+       COALESCE(SUM(a.duration_minutes) FILTER (WHERE a.status = 'completed' AND a.method = 'starlink_data_sync'), 0) AS starlink_minutes,
+       COALESCE(SUM(a.duration_minutes) FILTER (WHERE a.status = 'completed' AND a.method = 'pen_drive'), 0) AS pen_drive_minutes,
+       MAX(a.started_at) AS last_activity
      FROM technicians t
      LEFT JOIN activities a ON a.technician_id = t.id AND ${conditions.join(' AND ')}
      GROUP BY t.id, t.employee_id, t.name
