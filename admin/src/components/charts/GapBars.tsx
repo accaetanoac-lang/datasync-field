@@ -9,12 +9,14 @@ interface Props {
   biData: BiRow[];
 }
 
-function formatHa(v: number): string {
-  const abs = Math.abs(v);
-  if (abs >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
-  if (abs >= 1_000) return `${(v / 1_000).toFixed(1)}k`;
-  return v.toFixed(2);
-}
+const formatHa = (v: unknown): string => {
+  const num = Number(v);
+  if (isNaN(num)) return '0';
+  const abs = Math.abs(num);
+  if (abs >= 1_000_000) return `${(num / 1_000_000).toFixed(1)}M`;
+  if (abs >= 1_000) return `${(num / 1_000).toFixed(1)}k`;
+  return num.toFixed(2);
+};
 
 export default function GapBars({ biData }: Props) {
   const totals = biData.reduce(
