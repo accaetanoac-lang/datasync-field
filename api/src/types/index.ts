@@ -29,11 +29,12 @@ export interface Machine {
 
 export interface Technician {
   id: number;
-  employee_id: string;
+  employee_id?: string;
   name: string;
   email?: string;
   role: 'admin' | 'technician';
   active: boolean;
+  password_hash?: string;
   created_at: Date;
 }
 
@@ -137,7 +138,7 @@ export interface FieldVisitNoCollection {
 
 export interface JwtPayload {
   id: number;
-  employee_id: string;
+  employee_id?: string;
   role: 'admin' | 'technician';
   iat?: number;
   exp?: number;

@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
 import { queryOne } from '../db/client';
 import { Technician, JwtPayload } from '../types';
 import { authMiddleware } from '../middleware/auth';
@@ -13,6 +14,7 @@ function signToken(payload: Omit<JwtPayload, 'iat' | 'exp'>): string {
   return jwt.sign(payload, process.env.JWT_SECRET as string, { expiresIn: JWT_EXPIRES_IN });
 }
 
+// Mobile login — employee_id (x000000 format)
 router.post('/login', async (req: Request, res: Response): Promise<void> => {
   const { employee_id } = req.body as { employee_id?: string };
 
@@ -43,6 +45,48 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
       id: tech.id,
       employee_id: tech.employee_id,
       name: tech.name,
+      role: tech.role,
+    },
+  });
+});
+
+// Admin web login — email + password
+router.post('/admin-login', async (req: Request, res: Response): Promise<void> => {
+  const { email, password } = req.body as { email?: string; password?: string };
+
+  if (!email || !password) {
+    res.status(400).json({ error: 'email and password are required' });
+    return;
+  }
+
+  const tech = await queryOne<Technician>(
+    "SELECT * FROM technicians WHERE email = $1 AND role = 'admin'",
+    [email.toLowerCase().trim()]
+  );
+
+  if (!tech || !tech.password_hash) {
+    res.status(401).json({ error: 'Invalid credentials' });
+    return;
+  }
+
+  if (!tech.active) {
+    res.status(401).json({ error: 'Account is deactivated' });
+    return;
+  }
+
+  const valid = await bcrypt.compare(password, tech.password_hash);
+  if (!valid) {
+    res.status(401).json({ error: 'Invalid credentials' });
+    return;
+  }
+
+  const token = signToken({ id: tech.id, role: tech.role });
+  res.json({
+    token,
+    technician: {
+      id: tech.id,
+      name: tech.name,
+      email: tech.email,
       role: tech.role,
     },
   });

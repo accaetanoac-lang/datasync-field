@@ -27,14 +27,14 @@ export default function EngagementDonut({ biData }: Props) {
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
       <h3 className="font-semibold text-gray-700 mb-4">18.6 — Engajamento Digital (Distribuição)</h3>
-      <ResponsiveContainer width="100%" height={260}>
+      <ResponsiveContainer width="100%" height={300}>
         <PieChart>
           <Pie
             data={data}
             cx="50%"
-            cy="50%"
-            innerRadius={60}
-            outerRadius={100}
+            cy="42%"
+            innerRadius={55}
+            outerRadius={90}
             dataKey="value"
           >
             {data.map((entry, i) => (
@@ -45,7 +45,11 @@ export default function EngagementDonut({ biData }: Props) {
             ))}
           </Pie>
           <Tooltip formatter={(v: number, name: string) => [`${v} orgs`, name]} />
-          <Legend />
+          <Legend
+            iconType="circle"
+            iconSize={10}
+            wrapperStyle={{ paddingTop: 12, fontSize: 12, lineHeight: '20px' }}
+          />
         </PieChart>
       </ResponsiveContainer>
     </div>

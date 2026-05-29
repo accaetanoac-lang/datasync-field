@@ -9,6 +9,13 @@ interface Props {
   biData: BiRow[];
 }
 
+function formatHa(v: number): string {
+  const abs = Math.abs(v);
+  if (abs >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
+  if (abs >= 1_000) return `${(v / 1_000).toFixed(1)}k`;
+  return v.toFixed(2);
+}
+
 export default function GapBars({ biData }: Props) {
   const totals = biData.reduce(
     (acc, row) => ({
@@ -38,8 +45,8 @@ export default function GapBars({ biData }: Props) {
         <BarChart data={data}>
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis dataKey="op" />
-          <YAxis tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
-          <Tooltip formatter={(v: number) => `${v.toLocaleString('pt-BR')} ha`} />
+          <YAxis tickFormatter={(v: number) => formatHa(v)} />
+          <Tooltip formatter={(v: number) => [`${formatHa(v)} ha`]} />
           <Legend />
           <Bar dataKey="Máx" fill="#367C2B" />
           <Bar dataKey="YTD" fill="#FFDE00" />

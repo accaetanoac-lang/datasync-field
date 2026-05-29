@@ -2,18 +2,17 @@ import React, { useState } from 'react';
 import { useRouter } from 'next/router';
 import api from '../lib/api';
 
-const EMPLOYEE_ID_REGEX = /^x\d{6}$/;
-
 export default function LoginPage() {
   const router = useRouter();
-  const [employeeId, setEmployeeId] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!EMPLOYEE_ID_REGEX.test(employeeId)) {
-      setError('ID deve ter formato x000000.');
+    if (!email || !password) {
+      setError('Preencha e-mail e senha.');
       return;
     }
 
@@ -21,19 +20,15 @@ export default function LoginPage() {
     setError('');
 
     try {
-      const res = await api.post<{ token: string; technician: { role: string } }>('/auth/login', {
-        employee_id: employeeId,
-      });
-
-      if (res.data.technician.role !== 'admin') {
-        setError('Acesso restrito a administradores.');
-        return;
-      }
+      const res = await api.post<{ token: string; technician: { role: string } }>(
+        '/auth/admin-login',
+        { email, password }
+      );
 
       localStorage.setItem('admin_token', res.data.token);
       router.push('/');
     } catch {
-      setError('ID inválido ou acesso negado.');
+      setError('E-mail ou senha inválidos.');
     } finally {
       setLoading(false);
     }
@@ -50,16 +45,29 @@ export default function LoginPage() {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              ID do Funcionário
+              E-mail
             </label>
             <input
-              value={employeeId}
-              onChange={(e) => setEmployeeId(e.target.value.toLowerCase())}
-              placeholder="x000000"
-              maxLength={7}
-              autoCapitalize="none"
-              autoComplete="off"
-              className="w-full border border-gray-200 rounded-lg px-4 py-3 text-center font-mono text-xl tracking-widest focus:outline-none focus:ring-2 focus:ring-jd-green"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="admin@northgreen.com.br"
+              autoComplete="email"
+              className="w-full border border-gray-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-jd-green"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Senha
+            </label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              autoComplete="current-password"
+              className="w-full border border-gray-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-jd-green"
             />
           </div>
 
