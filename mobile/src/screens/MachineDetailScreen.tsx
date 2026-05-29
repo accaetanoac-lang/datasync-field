@@ -257,7 +257,6 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-const JD_GREEN = '#367C2B';
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f5f5' },
   content: { padding: 16, gap: 12 },
