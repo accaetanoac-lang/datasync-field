@@ -17,7 +17,7 @@ const JD_GREEN = '#367C2B';
 
 export default function SearchOrgScreen() {
   const navigation = useNavigation<Nav>();
-  const { logout } = useAuth();
+  const { clearAuth } = useAuth();
   const inputRef = useRef<TextInput>(null);
 
   const [query, setQuery] = useState('');
@@ -135,7 +135,7 @@ export default function SearchOrgScreen() {
         <Text style={styles.nonJDButtonText}>+ Máquina não-JD</Text>
       </TouchableOpacity>
 
-      <TouchableOpacity style={styles.logoutButton} onPress={logout}>
+      <TouchableOpacity style={styles.logoutButton} onPress={clearAuth}>
         <Text style={styles.logoutText}>Sair</Text>
       </TouchableOpacity>
     </View>

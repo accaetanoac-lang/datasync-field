@@ -31,7 +31,7 @@ const Stack = createStackNavigator<RootStackParamList>();
 const JD_GREEN = '#367C2B';
 
 export default function AppNavigator() {
-  const { technician, loading } = useAuth();
+  const { isAuthenticated, loading } = useAuth();
 
   if (loading) {
     return (
@@ -50,9 +50,15 @@ export default function AppNavigator() {
           headerTitleStyle: { fontWeight: 'bold' },
         }}
       >
-        {!technician ? (
-          <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
+        {!isAuthenticated ? (
+          // Not authenticated — Login is the only reachable screen
+          <Stack.Screen
+            name="Login"
+            component={LoginScreen}
+            options={{ headerShown: false }}
+          />
         ) : (
+          // Authenticated — main stack; Login is not reachable
           <>
             <Stack.Screen
               name="SearchOrg"
