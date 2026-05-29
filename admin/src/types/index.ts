@@ -117,6 +117,33 @@ export interface SummaryStats {
   organizations_total: number;
 }
 
+export interface TechnicianActivity {
+  id: number;
+  started_at: string;
+  finished_at?: string;
+  status: string;
+  method: string;
+  duration_minutes?: number;
+  current_hours?: number;
+  notes?: string;
+  org_name?: string;
+  machine_pin?: string;
+  machine_custom_name?: string;
+}
+
+export interface TechnicianDetail {
+  id: number;
+  employee_id: string;
+  name: string;
+  total_visits: number;
+  machines_collected: number;
+  machines_no_use: number;
+  starlink_minutes: number;
+  pen_drive_minutes: number;
+  total_minutes: number;
+  activities: TechnicianActivity[];
+}
+
 export interface TechnicianReport {
   id: number;
   employee_id: string;

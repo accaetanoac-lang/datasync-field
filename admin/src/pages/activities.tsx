@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import api from '../lib/api';
 import { Activity } from '../types';
+import ExportButton from '../components/ExportButton';
 
 export default function ActivitiesPage() {
   const [activities, setActivities] = useState<Activity[]>([]);
@@ -63,12 +64,30 @@ export default function ActivitiesPage() {
           <h1 className="text-2xl font-bold text-gray-900">Atividades Detalhadas</h1>
           <p className="text-gray-500 text-sm mt-1">{activities.length} registros</p>
         </div>
-        <button
-          onClick={exportCsv}
-          className="bg-jd-green text-white text-sm font-semibold px-4 py-2 rounded-lg hover:bg-green-700 transition-colors"
-        >
-          Exportar CSV
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={exportCsv}
+            className="bg-jd-green text-white text-sm font-semibold px-4 py-2 rounded-lg hover:bg-green-700 transition-colors"
+          >
+            Exportar CSV
+          </button>
+          <ExportButton
+            data={activities.map((a) => ({
+              Data: a.created_at ? new Date(a.created_at).toLocaleDateString('pt-BR') : '',
+              Técnico: a.technician_name ?? '',
+              ID: a.employee_id ?? '',
+              Organização: a.org_name ?? '',
+              'Chassi/PIN': a.machine_pin ?? a.machine_custom_name ?? '',
+              Método: METHOD_LABEL[a.method] ?? a.method,
+              'Horímetro (h)': a.current_hours ?? '',
+              'Diff (h)': a.hours_diff != null ? Number(a.hours_diff).toFixed(1) : '',
+              'Duração (min)': a.duration_minutes ?? '',
+              Status: a.status,
+              Observações: a.notes ?? '',
+            }))}
+            filename="atividades"
+          />
+        </div>
       </div>
 
       {/* Filters */}

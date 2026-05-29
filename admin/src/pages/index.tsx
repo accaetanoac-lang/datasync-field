@@ -7,6 +7,7 @@ import ConnectivityPie from '../components/charts/ConnectivityPie';
 import GapBars from '../components/charts/GapBars';
 import EngagementDonut from '../components/charts/EngagementDonut';
 import TechHoursChart from '../components/charts/TechHoursChart';
+import ExportButton from '../components/ExportButton';
 import { SummaryStats, BiRow, TechnicianReport, Machine, FieldVisitNoCollection } from '../types';
 
 const MachineMap = dynamic(() => import('../components/map/MachineMap'), { ssr: false });
@@ -82,9 +83,35 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-8 max-w-7xl mx-auto">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Dashboard — BI DataSync Field</h1>
-        <p className="text-gray-500 text-sm mt-1">Indicadores John Deere Operations Center · Indicador 18</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Dashboard — BI DataSync Field</h1>
+          <p className="text-gray-500 text-sm mt-1">Indicadores John Deere Operations Center · Indicador 18</p>
+        </div>
+        <ExportButton
+          data={biData.map((r) => ({
+            Organização: r.org_name,
+            'ID JD': r.org_id_jd,
+            Engajamento: r.engagement_level ?? '',
+            'Total Modems': r.all_modems ?? '',
+            'Modems Inativos': r.non_active_modems ?? '',
+            'Gen4/G5 Conectadas': r.lg_ag_connected_gen45 ?? '',
+            'Conectadas s/ Dados': r.lg_ag_not_submitting ?? '',
+            'Hectares em Risco': r.risk_acres ?? '',
+            'Hectares Engajados': r.highly_engaged_acres ?? '',
+            'YTD Preparo (ha)': r.ytd_prepare ?? '',
+            'GAP Preparo (ha)': r.gap_prepare ?? '',
+            'YTD Plantio (ha)': r.ytd_plant ?? '',
+            'GAP Plantio (ha)': r.gap_plant ?? '',
+            'YTD Aplicação (ha)': r.ytd_apply ?? '',
+            'GAP Aplicação (ha)': r.gap_apply ?? '',
+            'YTD Colheita (ha)': r.ytd_harvest ?? '',
+            'GAP Colheita (ha)': r.gap_harvest ?? '',
+            'Máq. Offline': r.offline_machines_count ?? '',
+          }))}
+          filename="bi-datasync-field"
+          label="Exportar BI Excel"
+        />
       </div>
 
       {/* Bloco 1 — Conectividade */}

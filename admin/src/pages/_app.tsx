@@ -9,6 +9,7 @@ const NAV = [
   { href: '/upload', label: 'Upload Planilhas' },
   { href: '/activities', label: 'Atividades' },
   { href: '/technicians', label: 'Técnicos' },
+  { href: '/technician-report', label: 'Relatório Técnicos' },
   { href: '/organizations', label: 'Organizações' },
 ];
 

@@ -55,20 +55,91 @@ router.get('/summary', async (_req: Request, res: Response): Promise<void> => {
 });
 
 router.get('/technicians', async (req: Request, res: Response): Promise<void> => {
-  const { date_from, date_to } = req.query as Record<string, string>;
+  // Support both date_from/date_to and from/to aliases; detail=true returns nested activities
+  const { date_from, date_to, from, to, detail } = req.query as Record<string, string>;
+  const fromDate = date_from || from || '';
+  const toDate = date_to || to || '';
 
+  // ── detail mode: single JOIN query, aggregate in JS ──────────────────────
+  if (detail === 'true') {
+    const conds: string[] = [];
+    const params: unknown[] = [];
+    let idx = 1;
+    if (fromDate) { conds.push(`a.started_at::date >= $${idx++}::date`); params.push(fromDate); }
+    if (toDate)   { conds.push(`a.started_at::date <= $${idx++}::date`); params.push(toDate); }
+    const joinWhere = conds.length ? `AND ${conds.join(' AND ')}` : '';
+
+    const rows = await query<Record<string, unknown>>(
+      `SELECT
+         t.id AS tech_id, t.employee_id, t.name AS tech_name,
+         a.id AS activity_id, a.started_at, a.finished_at, a.status, a.method,
+         a.duration_minutes, a.current_hours, a.notes,
+         o.name AS org_name,
+         m.pin AS machine_pin, m.custom_name AS machine_custom_name
+       FROM technicians t
+       LEFT JOIN activities a ON a.technician_id = t.id ${joinWhere}
+       LEFT JOIN organizations o ON o.id = a.org_id
+       LEFT JOIN machines m ON m.id = a.machine_id
+       ORDER BY t.name, a.started_at DESC NULLS LAST`,
+      params
+    );
+
+    const techMap = new Map<number, Record<string, unknown>>();
+    for (const row of rows) {
+      const techId = Number(row.tech_id);
+      if (!techMap.has(techId)) {
+        techMap.set(techId, {
+          id: techId,
+          employee_id: row.employee_id,
+          name: row.tech_name,
+          total_visits: 0,
+          machines_collected: 0,
+          machines_no_use: 0,
+          starlink_minutes: 0,
+          pen_drive_minutes: 0,
+          total_minutes: 0,
+          activities: [],
+        });
+      }
+      const tech = techMap.get(techId)!;
+      if (row.activity_id !== null) {
+        (tech.activities as unknown[]).push({
+          id: row.activity_id,
+          started_at: row.started_at,
+          finished_at: row.finished_at,
+          status: row.status,
+          method: row.method,
+          duration_minutes: row.duration_minutes != null ? Number(row.duration_minutes) : null,
+          current_hours: row.current_hours,
+          notes: row.notes,
+          org_name: row.org_name,
+          machine_pin: row.machine_pin,
+          machine_custom_name: row.machine_custom_name,
+        });
+        const mins = Number(row.duration_minutes) || 0;
+        (tech.total_visits as number);
+        tech.total_visits = Number(tech.total_visits) + 1;
+        if (row.status === 'completed') {
+          tech.machines_collected = Number(tech.machines_collected) + 1;
+          tech.total_minutes = Number(tech.total_minutes) + mins;
+          if (row.method === 'starlink_data_sync') tech.starlink_minutes = Number(tech.starlink_minutes) + mins;
+          if (row.method === 'pen_drive')          tech.pen_drive_minutes = Number(tech.pen_drive_minutes) + mins;
+        }
+        if (row.status === 'no_use') tech.machines_no_use = Number(tech.machines_no_use) + 1;
+      }
+    }
+
+    res.json([...techMap.values()]);
+    return;
+  }
+
+  // ── summary mode (used by dashboard chart) ───────────────────────────────
   const conditions: string[] = ['1=1'];
   const params: unknown[] = [];
   let paramIdx = 1;
 
-  if (date_from) {
-    conditions.push(`a.created_at >= $${paramIdx++}`);
-    params.push(new Date(date_from));
-  }
-  if (date_to) {
-    conditions.push(`a.created_at <= $${paramIdx++}`);
-    params.push(new Date(date_to));
-  }
+  if (fromDate) { conditions.push(`a.started_at >= $${paramIdx++}`); params.push(new Date(fromDate)); }
+  if (toDate)   { conditions.push(`a.started_at <= $${paramIdx++}`); params.push(new Date(toDate)); }
 
   const rows = await query(
     `SELECT

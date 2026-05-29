@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../lib/api';
 import { Organization, BiRow } from '../types';
+import ExportButton from '../components/ExportButton';
 
 interface OrgReport extends Organization {
   offline_machines: number;
@@ -38,9 +39,31 @@ export default function OrganizationsPage() {
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Organizações</h1>
-        <p className="text-gray-500 text-sm mt-1">{filtered.length} organizações</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Organizações</h1>
+          <p className="text-gray-500 text-sm mt-1">{filtered.length} organizações</p>
+        </div>
+        <ExportButton
+          data={filtered.map((o) => {
+            const b = biData[o.id];
+            return {
+              Organização: o.name,
+              'ID JD': o.org_id_jd,
+              'Máq. Offline': o.offline_machines ?? 0,
+              'Último Técnico': o.last_technician ?? '',
+              'Última Visita': o.last_visit ? new Date(o.last_visit).toLocaleDateString('pt-BR') : '',
+              Coletadas: o.machines_collected ?? 0,
+              Pendentes: o.pending ?? 0,
+              Engajamento: o.engagement_level ?? '',
+              'Total Modems': b?.all_modems ?? '',
+              'Modems Inativos': b?.non_active_modems ?? '',
+              'Hectares em Risco': b?.risk_acres ?? '',
+              'Hectares Engajados': b?.highly_engaged_acres ?? '',
+            };
+          })}
+          filename="organizacoes"
+        />
       </div>
 
       <input
