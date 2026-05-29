@@ -32,6 +32,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     (async () => {
       try {
+        await AsyncStorage.clear(); // TODO: remove before release — forces fresh login on every refresh
         const token = await AsyncStorage.getItem(TOKEN_KEY);
         const techRaw = await AsyncStorage.getItem(TECH_KEY);
 
