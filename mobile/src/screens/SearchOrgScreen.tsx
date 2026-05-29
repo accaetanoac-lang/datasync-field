@@ -1,9 +1,9 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, TextInput, FlatList, TouchableOpacity,
   StyleSheet, ActivityIndicator, Alert,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { searchOrgs } from '../services/api';
 import { getCachedOrgs, setCachedOrgs } from '../services/sync';
@@ -18,82 +18,115 @@ const JD_GREEN = '#367C2B';
 export default function SearchOrgScreen() {
   const navigation = useNavigation<Nav>();
   const { logout } = useAuth();
+  const inputRef = useRef<TextInput>(null);
+
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<Organization[]>([]);
+  const [allOrgs, setAllOrgs] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(false);
-  const [debounceTimer, setDebounceTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
+  const [showList, setShowList] = useState(false);
 
-  const doSearch = useCallback(async (text: string) => {
-    if (text.length < 2) {
-      setResults([]);
-      return;
-    }
+  const filtered = query.trim() === ''
+    ? allOrgs
+    : allOrgs.filter((o) => o.name.toLowerCase().includes(query.toLowerCase()));
 
+  const loadAll = useCallback(async () => {
     setLoading(true);
     try {
-      const orgs = await searchOrgs(text);
-      setResults(orgs);
+      const orgs = await searchOrgs('');
+      setAllOrgs(orgs);
       await setCachedOrgs(orgs);
     } catch {
-      // Try cache on error
-      const cached = await getCachedOrgs(text);
+      const cached = await getCachedOrgs('');
       if (cached) {
-        const filtered = cached.data.filter((o) =>
-          o.name.toLowerCase().includes(text.toLowerCase())
-        );
-        setResults(filtered);
+        setAllOrgs(cached.data);
       } else {
-        Alert.alert('Sem conexão', 'Sem conexão e sem cache disponível.');
+        Alert.alert('Sem conexão', 'Não foi possível carregar organizações.');
       }
     } finally {
       setLoading(false);
     }
   }, []);
 
-  const handleChange = (text: string) => {
-    setQuery(text);
-    if (debounceTimer) clearTimeout(debounceTimer);
-    const timer = setTimeout(() => doSearch(text), 300);
-    setDebounceTimer(timer);
+  useEffect(() => { loadAll(); }, [loadAll]);
+
+  useFocusEffect(useCallback(() => {
+    return () => {
+      setShowList(false);
+      setQuery('');
+    };
+  }, []));
+
+  const handleSelect = (org: Organization) => {
+    setShowList(false);
+    navigation.navigate('MachineList', { org });
   };
 
-  useEffect(() => () => { if (debounceTimer) clearTimeout(debounceTimer); }, [debounceTimer]);
-
   return (
+    // Plain View — no TouchableWithoutFeedback so the TextInput is focusable on web
     <View style={styles.container}>
+
+      {/* TextInput is NOT nested inside any Touchable.
+          zIndex: 30 keeps it above the backdrop when the dropdown is open. */}
       <TextInput
-        style={styles.searchInput}
+        ref={inputRef}
+        style={[styles.searchInput, showList && styles.searchInputActive]}
         value={query}
-        onChangeText={handleChange}
-        placeholder="Buscar organização (min. 2 caracteres)"
+        onChangeText={setQuery}
+        onFocus={() => setShowList(true)}
+        placeholder="Buscar organização..."
         placeholderTextColor="#aaa"
         autoCorrect={false}
+        autoCapitalize="none"
+        autoFocus={false}
       />
 
-      {loading && <ActivityIndicator color={JD_GREEN} style={{ marginVertical: 8 }} />}
+      {loading && (
+        <ActivityIndicator color={JD_GREEN} style={{ marginVertical: 8 }} />
+      )}
 
-      <FlatList
-        data={results}
-        keyExtractor={(item) => String(item.id)}
-        renderItem={({ item }) => (
-          <TouchableOpacity
-            style={styles.orgCard}
-            onPress={() => navigation.navigate('MachineList', { org: item })}
-          >
-            <Text style={styles.orgName}>{item.name}</Text>
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>
-                {item.offline_machine_count ?? 0} máquinas offline
+      {showList && !loading && (
+        <>
+          {/* Transparent backdrop — sits behind the dropdown (zIndex 10).
+              onTouchStart closes the list when the user taps outside. */}
+          <View
+            style={styles.backdrop}
+            onTouchStart={() => setShowList(false)}
+          />
+
+          {/* Dropdown — rendered after backdrop so it paints on top (zIndex 20).
+              keyboardShouldPersistTaps="handled" lets list items receive taps
+              even while the keyboard is open on native. */}
+          <FlatList
+            style={styles.list}
+            data={filtered}
+            keyExtractor={(item) => String(item.id)}
+            keyboardShouldPersistTaps="handled"
+            renderItem={({ item }) => (
+              <TouchableOpacity
+                style={styles.orgCard}
+                onPress={() => handleSelect(item)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.orgName} numberOfLines={1}>{item.name}</Text>
+                <View style={styles.badge}>
+                  <Text style={styles.badgeText}>
+                    {item.offline_machine_count ?? 0} offline
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            )}
+            ListEmptyComponent={
+              <Text style={styles.empty}>
+                {query.length > 0
+                  ? 'Nenhuma organização encontrada.'
+                  : 'Nenhuma organização com máquinas offline.'}
               </Text>
-            </View>
-          </TouchableOpacity>
-        )}
-        ListEmptyComponent={
-          !loading && query.length >= 2 ? (
-            <Text style={styles.empty}>Nenhuma organização encontrada.</Text>
-          ) : null
-        }
-      />
+            }
+          />
+        </>
+      )}
+
+      <View style={{ flex: 1 }} />
 
       <TouchableOpacity
         style={styles.nonJDButton}
@@ -111,48 +144,82 @@ export default function SearchOrgScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f5f5', padding: 16 },
+
   searchInput: {
     height: 48,
     backgroundColor: '#fff',
     borderRadius: 8,
     paddingHorizontal: 16,
     fontSize: 16,
-    marginBottom: 12,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: '#ddd',
     color: '#1a1a1a',
+    // Must be above backdrop (10) and dropdown (20) so pointer events always reach the input
+    zIndex: 30,
   },
-  orgCard: {
+  searchInputActive: {
+    borderColor: JD_GREEN,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+  },
+
+  // Transparent full-screen overlay rendered behind the dropdown.
+  // Catches any tap outside the dropdown to dismiss it.
+  backdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 10,
+  },
+
+  // Dropdown sits above the backdrop in both render order and zIndex.
+  list: {
+    zIndex: 20,
     backgroundColor: '#fff',
-    borderRadius: 8,
-    padding: 16,
-    marginBottom: 8,
+    borderWidth: 1.5,
+    borderTopWidth: 0,
+    borderColor: JD_GREEN,
+    borderBottomLeftRadius: 8,
+    borderBottomRightRadius: 8,
+    maxHeight: 380,
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+  },
+
+  orgCard: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    elevation: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
   },
-  orgName: { fontSize: 15, fontWeight: '600', color: '#1a1a1a', flex: 1 },
+  orgName: { fontSize: 15, fontWeight: '600', color: '#1a1a1a', flex: 1, marginRight: 8 },
   badge: {
-    backgroundColor: '#367C2B',
+    backgroundColor: JD_GREEN,
     borderRadius: 12,
     paddingHorizontal: 10,
     paddingVertical: 4,
+    minWidth: 62,
+    alignItems: 'center',
   },
-  badgeText: { color: '#fff', fontSize: 12, fontWeight: '600' },
-  empty: { textAlign: 'center', color: '#888', marginTop: 32, fontSize: 15 },
+  badgeText: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  empty: { textAlign: 'center', color: '#888', padding: 24, fontSize: 14 },
+
   nonJDButton: {
     backgroundColor: '#1a1a1a',
     borderRadius: 8,
     padding: 14,
     alignItems: 'center',
-    marginTop: 8,
+    marginBottom: 4,
   },
   nonJDButtonText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-  logoutButton: { padding: 14, alignItems: 'center', marginTop: 4 },
+  logoutButton: { padding: 14, alignItems: 'center' },
   logoutText: { color: '#888', fontSize: 14 },
 });

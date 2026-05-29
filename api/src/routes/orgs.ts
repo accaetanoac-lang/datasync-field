@@ -9,11 +9,6 @@ router.use(authMiddleware);
 router.get('/', async (req: Request, res: Response): Promise<void> => {
   const search = (req.query.search as string) ?? '';
 
-  if (search.length > 0 && search.length < 2) {
-    res.status(400).json({ error: 'Search term must be at least 2 characters' });
-    return;
-  }
-
   const rows = await query<{
     id: number;
     org_id_jd: string;
@@ -31,8 +26,9 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
      LEFT JOIN machines m ON m.org_id = o.id
      WHERE ($1 = '' OR o.name ILIKE '%' || $1 || '%')
      GROUP BY o.id
-     ORDER BY o.name
-     LIMIT 100`,
+     HAVING COUNT(m.id) FILTER (WHERE m.days_offline >= 30 OR m.last_call_date IS NULL) > 0
+     ORDER BY offline_machine_count DESC, o.name
+     LIMIT 200`,
     [search]
   );
 

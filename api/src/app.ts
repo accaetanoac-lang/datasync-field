@@ -15,8 +15,21 @@ dotenv.config();
 
 const app = express();
 
+const ALLOWED_ORIGINS = [
+  'http://localhost:8081',
+  'http://localhost:3002',
+  ...(process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim()) : []),
+];
+
 app.use(cors({
-  origin: process.env.CORS_ORIGIN ?? '*',
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, curl, etc.)
+    if (!origin || ALLOWED_ORIGINS.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error(`CORS: origin ${origin} not allowed`));
+    }
+  },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
