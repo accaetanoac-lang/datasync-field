@@ -141,3 +141,22 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# Expo
+.expo/
+mobile/android/
+mobile/ios/
+
+# Env (keep examples)
+!.env.example
+!.env.local.example
+
+# AWS
+.aws-credentials
+
+# Local uploads
+uploads/
+
+# OS
+.DS_Store
+Thumbs.db

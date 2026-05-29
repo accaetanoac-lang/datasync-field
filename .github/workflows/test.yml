@@ -1,0 +1,68 @@
+name: Tests & Lint
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [develop]
+
+jobs:
+  api-test:
+    name: API — Tests & TypeScript
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: api/package-lock.json
+
+      - name: Install dependencies
+        working-directory: api
+        run: npm ci
+
+      - name: TypeScript check
+        working-directory: api
+        run: npm run lint
+
+      - name: Run unit tests
+        working-directory: api
+        run: npm test
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test
+          JWT_SECRET: test_secret_for_ci
+          NODE_ENV: test
+
+  admin-build:
+    name: Admin — Build & TypeScript
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: admin/package-lock.json
+
+      - name: Install dependencies
+        working-directory: admin
+        run: npm ci
+
+      - name: TypeScript check
+        working-directory: admin
+        run: npx tsc --noEmit
+
+      - name: Build Next.js
+        working-directory: admin
+        run: npm run build
+        env:
+          NEXT_PUBLIC_API_URL: https://api.datasync-field.com

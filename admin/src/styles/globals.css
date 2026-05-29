@@ -1,0 +1,21 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --jd-green: #367C2B;
+  --jd-yellow: #FFDE00;
+}
+
+.bg-jd-green { background-color: var(--jd-green); }
+.text-jd-yellow { color: var(--jd-yellow); }
+.border-jd-green { border-color: var(--jd-green); }
+
+/* Leaflet map fix */
+.leaflet-container {
+  z-index: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, sans-serif;
+}

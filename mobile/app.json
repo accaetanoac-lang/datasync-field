@@ -1,0 +1,47 @@
+{
+  "expo": {
+    "name": "DataSync Field",
+    "slug": "datasync-field",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#367C2B"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.sincronus.datasyncfield",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "DataSync Field usa sua localização para registrar visitas a fazendas com máquinas offline.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "DataSync Field usa sua localização para registrar visitas a fazendas com máquinas offline."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#367C2B"
+      },
+      "package": "com.sincronus.datasyncfield",
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Permitir que DataSync Field use sua localização."
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "datasync-field"
+      }
+    }
+  }
+}
