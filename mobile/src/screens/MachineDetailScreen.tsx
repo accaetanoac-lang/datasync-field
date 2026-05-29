@@ -25,6 +25,7 @@ export default function MachineDetailScreen() {
   const { machine, org } = route.params;
 
   const [currentHours, setCurrentHours] = useState('');
+  const [hoursError, setHoursError] = useState<string | null>(null);
   const [diff, setDiff] = useState<number | null>(null);
   const [method, setMethod] = useState<Method | null>(null);
   const [loading, setLoading] = useState(false);
@@ -32,12 +33,32 @@ export default function MachineDetailScreen() {
 
   const lastHours = machine.machine_hours ?? 0;
 
+  const handleHoursChange = (text: string) => {
+    setCurrentHours(text);
+    setDiff(null);
+    const val = parseFloat(text);
+    if (!isNaN(val) && val < lastHours) {
+      setHoursError(
+        `Horímetro atual não pode ser menor que o horímetro da última conexão (${lastHours} h)`
+      );
+    } else {
+      setHoursError(null);
+    }
+  };
+
   const handleHoursSubmit = () => {
     const val = parseFloat(currentHours);
     if (isNaN(val)) {
-      Alert.alert('Erro', 'Digite um valor numérico válido.');
+      setHoursError('Digite um valor numérico válido.');
       return;
     }
+    if (val < lastHours) {
+      setHoursError(
+        `Horímetro atual não pode ser menor que o horímetro da última conexão (${lastHours} h)`
+      );
+      return;
+    }
+    setHoursError(null);
     setDiff(val - lastHours);
   };
 
@@ -174,24 +195,49 @@ export default function MachineDetailScreen() {
       <Text style={styles.label}>Horímetro atual (confira no painel)</Text>
       <View style={styles.hoursRow}>
         <TextInput
-          style={styles.hoursInput}
+          style={[styles.hoursInput, hoursError ? styles.hoursInputError : null]}
           value={currentHours}
-          onChangeText={setCurrentHours}
+          onChangeText={handleHoursChange}
           placeholder="Ex: 1580"
           placeholderTextColor="#aaa"
           keyboardType="numeric"
           returnKeyType="done"
           onSubmitEditing={handleHoursSubmit}
         />
-        <TouchableOpacity style={styles.confirmBtn} onPress={handleHoursSubmit}>
+        <TouchableOpacity
+          style={[styles.confirmBtn, hoursError ? styles.confirmBtnDisabled : null]}
+          onPress={handleHoursSubmit}
+          disabled={!!hoursError}
+        >
           <Text style={styles.confirmBtnText}>OK</Text>
         </TouchableOpacity>
       </View>
+      {hoursError && (
+        <Text style={styles.hoursErrorText}>{hoursError}</Text>
+      )}
 
       {/* Result based on diff */}
       {diff !== null && (
         <View style={styles.diffSection}>
-          {diff < 50 ? (
+          {diff === 0 ? (
+            <>
+              <View style={styles.noUseWarning}>
+                <Text style={styles.noUseTitle}>Máquina sem uso</Text>
+                <Text style={styles.noUseSubtitle}>
+                  Horímetro idêntico ao da última conexão ({lastHours} h).
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={styles.noUseButton}
+                onPress={handleNoUse}
+                disabled={loading}
+              >
+                {loading
+                  ? <ActivityIndicator color="#fff" />
+                  : <Text style={styles.noUseButtonText}>Confirmar e Encerrar</Text>}
+              </TouchableOpacity>
+            </>
+          ) : diff < 50 ? (
             <>
               <View style={styles.noUseWarning}>
                 <Text style={styles.noUseTitle}>Máquina sem uso após última subida de dados</Text>
@@ -210,6 +256,7 @@ export default function MachineDetailScreen() {
               </TouchableOpacity>
             </>
           ) : (
+            /* diff >= 50 — activity flow */
             <>
               <Text style={styles.diffPositive}>
                 Diferença: {diff.toFixed(1)} h — coleta necessária
@@ -287,12 +334,22 @@ const styles = StyleSheet.create({
     borderColor: '#ddd',
     color: '#1a1a1a',
   },
+  hoursInputError: {
+    borderColor: '#ef4444',
+    borderWidth: 1.5,
+  },
+  hoursErrorText: {
+    color: '#ef4444',
+    fontSize: 13,
+    marginTop: 4,
+  },
   confirmBtn: {
     backgroundColor: JD_GREEN,
     borderRadius: 8,
     paddingHorizontal: 20,
     justifyContent: 'center',
   },
+  confirmBtnDisabled: { backgroundColor: '#a8c5a0' },
   confirmBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
   diffSection: { gap: 12 },
   noUseWarning: {
