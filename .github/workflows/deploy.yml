@@ -1,0 +1,205 @@
+name: Deploy DataSync Field
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REGISTRY: 496795891165.dkr.ecr.us-east-1.amazonaws.com
+
+# ─────────────────────────────────────────────────────────────
+# Detect which parts of the codebase changed
+# ─────────────────────────────────────────────────────────────
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      api:    ${{ steps.filter.outputs.api }}
+      admin:  ${{ steps.filter.outputs.admin }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            api:
+              - 'api/**'
+              - '.github/workflows/deploy.yml'
+            admin:
+              - 'admin/**'
+              - '.github/workflows/deploy.yml'
+
+  # ─────────────────────────────────────────────────────────────
+  # Type-check both projects in parallel (fast gate before deploy)
+  # ─────────────────────────────────────────────────────────────
+  typecheck-api:
+    needs: changes
+    if: needs.changes.outputs.api == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+      - run: npm ci
+        working-directory: api
+      - run: npx tsc --noEmit
+        working-directory: api
+
+  typecheck-admin:
+    needs: changes
+    if: needs.changes.outputs.admin == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: admin/package-lock.json
+      - run: npm ci
+        working-directory: admin
+      - run: npx tsc --noEmit
+        working-directory: admin
+
+  # ─────────────────────────────────────────────────────────────
+  # API: Build Docker image → ECR → run migrations → deploy ECS
+  # ─────────────────────────────────────────────────────────────
+  deploy-api:
+    needs: [changes, typecheck-api]
+    if: needs.changes.outputs.api == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag, and push image to ECR
+        id: build-image
+        working-directory: api
+        run: |
+          IMAGE_TAG=${{ github.sha }}
+          IMAGE_URI=${{ env.ECR_REGISTRY }}/${{ secrets.ECR_REPOSITORY_NAME }}
+
+          docker build -t $IMAGE_URI:$IMAGE_TAG -t $IMAGE_URI:latest .
+          docker push $IMAGE_URI:$IMAGE_TAG
+          docker push $IMAGE_URI:latest
+
+          echo "image=$IMAGE_URI:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Run database migrations
+        run: |
+          sudo apt-get install -y postgresql-client -q
+          for sql in api/src/db/migrations/*.sql; do
+            echo "→ Running $sql"
+            psql "${{ secrets.DATABASE_URL }}" -f "$sql"
+          done
+
+      - name: Inject secrets into task definition
+        id: render-task-def
+        run: |
+          # Read the template, substitute DATABASE_URL and JWT_SECRET, write to temp file
+          jq --arg db   "${{ secrets.DATABASE_URL }}" \
+             --arg jwt  "${{ secrets.JWT_SECRET }}" \
+             --arg img  "${{ steps.build-image.outputs.image }}" \
+             '(.containerDefinitions[0].environment[] | select(.name == "DATABASE_URL") | .value) |= $db |
+              (.containerDefinitions[0].environment[] | select(.name == "JWT_SECRET")   | .value) |= $jwt |
+              .containerDefinitions[0].image                                                       |= $img' \
+            .aws/task-definition.json > /tmp/task-definition-filled.json
+          echo "task-def=/tmp/task-definition-filled.json" >> $GITHUB_OUTPUT
+
+      - name: Register task definition
+        id: register-task-def
+        run: |
+          TASK_DEF_ARN=$(aws ecs register-task-definition \
+            --cli-input-json file://${{ steps.render-task-def.outputs.task-def }} \
+            --region ${{ env.AWS_REGION }} \
+            --query "taskDefinition.taskDefinitionArn" --output text)
+          echo "task-def-arn=$TASK_DEF_ARN" >> $GITHUB_OUTPUT
+
+      - name: Deploy to ECS service
+        run: |
+          aws ecs update-service \
+            --cluster ${{ secrets.ECS_CLUSTER_NAME }} \
+            --service  datasync-field-api-service \
+            --task-definition ${{ steps.register-task-def.outputs.task-def-arn }} \
+            --force-new-deployment \
+            --region ${{ env.AWS_REGION }}
+
+      - name: Wait for ECS service to stabilise
+        run: |
+          aws ecs wait services-stable \
+            --cluster ${{ secrets.ECS_CLUSTER_NAME }} \
+            --services datasync-field-api-service \
+            --region ${{ env.AWS_REGION }}
+
+  # ─────────────────────────────────────────────────────────────
+  # Admin: Build Next.js static export → S3 → CloudFront invalidation
+  # ─────────────────────────────────────────────────────────────
+  deploy-admin:
+    needs: [changes, typecheck-admin]
+    if: needs.changes.outputs.admin == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: admin/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: admin
+
+      - name: Build static export
+        run: npm run build
+        working-directory: admin
+        env:
+          NEXT_EXPORT: '1'
+          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ env.AWS_REGION }}
+
+      - name: Sync to S3
+        run: |
+          aws s3 sync admin/out s3://${{ secrets.S3_BUCKET_NAME }} \
+            --delete \
+            --cache-control "public,max-age=31536000,immutable" \
+            --exclude "*.html"
+
+          # HTML files: no cache so deploys are instant
+          aws s3 sync admin/out s3://${{ secrets.S3_BUCKET_NAME }} \
+            --delete \
+            --cache-control "no-cache,no-store,must-revalidate" \
+            --include "*.html"
+
+      - name: Invalidate CloudFront cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} \
+            --paths "/*"
