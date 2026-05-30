@@ -11,6 +11,7 @@ const NAV = [
   { href: '/technicians', label: 'Técnicos' },
   { href: '/technician-report', label: 'Relatório Técnicos' },
   { href: '/organizations', label: 'Organizações' },
+  { href: '/visit-management', label: 'Gestão de Visitas' },
 ];
 
 export default function App({ Component, pageProps }: AppProps) {

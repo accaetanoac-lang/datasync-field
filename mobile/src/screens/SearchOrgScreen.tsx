@@ -1,19 +1,22 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import {
   View, Text, TextInput, FlatList, TouchableOpacity,
-  StyleSheet, ActivityIndicator, Alert,
+  StyleSheet, ActivityIndicator, Alert, Modal, Vibration,
+  ScrollView,
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
-import { searchOrgs } from '../services/api';
+import { searchOrgs, sendGeofence } from '../services/api';
 import { getCachedOrgs, setCachedOrgs } from '../services/sync';
+import { getCurrentLocation } from '../services/geolocation';
 import { useAuth } from '../context/AuthContext';
-import { Organization } from '../types';
+import { Organization, NearbyOrg } from '../types';
 import { RootStackParamList } from '../navigation/AppNavigator';
 
 type Nav = StackNavigationProp<RootStackParamList, 'SearchOrg'>;
 
 const JD_GREEN = '#367C2B';
+const GEOFENCE_INTERVAL_MS = 5 * 60 * 1000;
 
 export default function SearchOrgScreen() {
   const navigation = useNavigation<Nav>();
@@ -24,6 +27,11 @@ export default function SearchOrgScreen() {
   const [allOrgs, setAllOrgs] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(false);
   const [showList, setShowList] = useState(false);
+
+  // Geofence alert state
+  const [nearbyOrgs, setNearbyOrgs] = useState<NearbyOrg[]>([]);
+  const [showGeofenceModal, setShowGeofenceModal] = useState(false);
+  const dismissedOrgIds = useRef<Set<number>>(new Set());
 
   const filtered = query.trim() === ''
     ? allOrgs
@@ -47,26 +55,64 @@ export default function SearchOrgScreen() {
     }
   }, []);
 
-  useEffect(() => { loadAll(); }, [loadAll]);
+  const checkGeofence = useCallback(async () => {
+    try {
+      const coords = await getCurrentLocation();
+      if (!coords) return;
 
-  useFocusEffect(useCallback(() => {
-    return () => {
-      setShowList(false);
-      setQuery('');
-    };
-  }, []));
+      const result = await sendGeofence(coords.latitude, coords.longitude);
+      const newOrgs = result.nearby_orgs.filter(
+        (o) => !dismissedOrgIds.current.has(o.org_id)
+      );
+
+      if (newOrgs.length > 0) {
+        setNearbyOrgs(newOrgs);
+        setShowGeofenceModal(true);
+        Vibration.vibrate([0, 400, 150, 400]);
+      }
+    } catch {
+      // Geofence check is best-effort — silent on failure
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadAll();
+      checkGeofence();
+      const interval = setInterval(checkGeofence, GEOFENCE_INTERVAL_MS);
+
+      return () => {
+        clearInterval(interval);
+        setShowList(false);
+        setQuery('');
+      };
+    }, [loadAll, checkGeofence])
+  );
 
   const handleSelect = (org: Organization) => {
     setShowList(false);
     navigation.navigate('MachineList', { org });
   };
 
-  return (
-    // Plain View — no TouchableWithoutFeedback so the TextInput is focusable on web
-    <View style={styles.container}>
+  const handleViewMachines = (nearby: NearbyOrg) => {
+    dismissedOrgIds.current.add(nearby.org_id);
+    setShowGeofenceModal(false);
+    const org: Organization = {
+      id: nearby.org_id,
+      org_id_jd: '',
+      name: nearby.org_name,
+      offline_machine_count: nearby.pending_machines.length,
+    };
+    navigation.navigate('MachineList', { org });
+  };
 
-      {/* TextInput is NOT nested inside any Touchable.
-          zIndex: 30 keeps it above the backdrop when the dropdown is open. */}
+  const handleIgnoreAll = () => {
+    nearbyOrgs.forEach((o) => dismissedOrgIds.current.add(o.org_id));
+    setShowGeofenceModal(false);
+  };
+
+  return (
+    <View style={styles.container}>
       <TextInput
         ref={inputRef}
         style={[styles.searchInput, showList && styles.searchInputActive]}
@@ -86,16 +132,10 @@ export default function SearchOrgScreen() {
 
       {showList && !loading && (
         <>
-          {/* Transparent backdrop — sits behind the dropdown (zIndex 10).
-              onTouchStart closes the list when the user taps outside. */}
           <View
             style={styles.backdrop}
             onTouchStart={() => setShowList(false)}
           />
-
-          {/* Dropdown — rendered after backdrop so it paints on top (zIndex 20).
-              keyboardShouldPersistTaps="handled" lets list items receive taps
-              even while the keyboard is open on native. */}
           <FlatList
             style={styles.list}
             data={filtered}
@@ -138,6 +178,53 @@ export default function SearchOrgScreen() {
       <TouchableOpacity style={styles.logoutButton} onPress={clearAuth}>
         <Text style={styles.logoutText}>Sair</Text>
       </TouchableOpacity>
+
+      {/* Geofence nearby-farms alert */}
+      <Modal
+        visible={showGeofenceModal}
+        transparent
+        animationType="slide"
+        onRequestClose={handleIgnoreAll}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalIcon}>🚨</Text>
+              <Text style={styles.modalTitle}>Máquinas para coletar!</Text>
+              <Text style={styles.modalSubtitle}>
+                Você está próximo de fazendas com máquinas offline pendentes.
+              </Text>
+            </View>
+
+            <ScrollView style={styles.orgList} showsVerticalScrollIndicator={false}>
+              {nearbyOrgs.map((nearby) => (
+                <View key={nearby.org_id} style={styles.nearbyOrgRow}>
+                  <View style={styles.nearbyOrgInfo}>
+                    <Text style={styles.nearbyOrgName} numberOfLines={1}>
+                      {nearby.org_name}
+                    </Text>
+                    <Text style={styles.nearbyOrgDetail}>
+                      {nearby.pending_machines.length}{' '}
+                      máquina{nearby.pending_machines.length !== 1 ? 's' : ''} pendente{nearby.pending_machines.length !== 1 ? 's' : ''}
+                      {'  ·  '}{nearby.distance_km} km
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.viewButton}
+                    onPress={() => handleViewMachines(nearby)}
+                  >
+                    <Text style={styles.viewButtonText}>Ver</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </ScrollView>
+
+            <TouchableOpacity style={styles.ignoreButton} onPress={handleIgnoreAll}>
+              <Text style={styles.ignoreButtonText}>Ignorar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -154,7 +241,6 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: '#ddd',
     color: '#1a1a1a',
-    // Must be above backdrop (10) and dropdown (20) so pointer events always reach the input
     zIndex: 30,
   },
   searchInputActive: {
@@ -163,18 +249,12 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 0,
   },
 
-  // Transparent full-screen overlay rendered behind the dropdown.
-  // Catches any tap outside the dropdown to dismiss it.
   backdrop: {
     position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
+    top: 0, left: 0, right: 0, bottom: 0,
     zIndex: 10,
   },
 
-  // Dropdown sits above the backdrop in both render order and zIndex.
   list: {
     zIndex: 20,
     backgroundColor: '#fff',
@@ -222,4 +302,55 @@ const styles = StyleSheet.create({
   nonJDButtonText: { color: '#fff', fontWeight: '700', fontSize: 15 },
   logoutButton: { padding: 14, alignItems: 'center' },
   logoutText: { color: '#888', fontSize: 14 },
+
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'flex-end',
+  },
+  modalCard: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 20,
+    paddingTop: 24,
+    paddingBottom: 36,
+    maxHeight: '80%',
+  },
+  modalHeader: { alignItems: 'center', marginBottom: 20 },
+  modalIcon: { fontSize: 40, marginBottom: 8 },
+  modalTitle: { fontSize: 20, fontWeight: '800', color: '#1a1a1a', textAlign: 'center' },
+  modalSubtitle: { fontSize: 13, color: '#666', textAlign: 'center', marginTop: 6 },
+
+  orgList: { maxHeight: 300, marginBottom: 16 },
+
+  nearbyOrgRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+    gap: 12,
+  },
+  nearbyOrgInfo: { flex: 1 },
+  nearbyOrgName: { fontSize: 15, fontWeight: '700', color: '#1a1a1a' },
+  nearbyOrgDetail: { fontSize: 12, color: '#888', marginTop: 2 },
+
+  viewButton: {
+    backgroundColor: JD_GREEN,
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  viewButtonText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+
+  ignoreButton: {
+    borderWidth: 1.5,
+    borderColor: '#ddd',
+    borderRadius: 10,
+    padding: 14,
+    alignItems: 'center',
+  },
+  ignoreButtonText: { color: '#888', fontWeight: '600', fontSize: 15 },
 });

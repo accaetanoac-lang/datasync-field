@@ -1,6 +1,6 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Organization, Machine, Activity, Technician } from '../types';
+import { Organization, Machine, Activity, Technician, NearbyOrg } from '../types';
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3001';
 
@@ -107,8 +107,12 @@ export async function createNoUseActivity(data: {
 }
 
 // Geofence
-export async function sendGeofence(tech_lat: number, tech_lng: number): Promise<void> {
-  await api.post('/visits/geofence', { tech_lat, tech_lng });
+export async function sendGeofence(
+  tech_lat: number,
+  tech_lng: number,
+): Promise<{ nearby_orgs: NearbyOrg[] }> {
+  const res = await api.post<{ nearby_orgs: NearbyOrg[] }>('/visits/geofence', { tech_lat, tech_lng });
+  return res.data;
 }
 
 export default api;

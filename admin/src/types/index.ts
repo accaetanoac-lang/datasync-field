@@ -169,6 +169,25 @@ export interface FieldVisitNoCollection {
   machines_pending?: number;
 }
 
+export interface VisitManagement {
+  id: number;
+  detected_at: string;
+  visit_lat?: number;
+  visit_lng?: number;
+  machines_pending: number;
+  machines_collected: number;
+  machines_not_collected: number;
+  machine_pins_pending?: string[];
+  machine_pins_collected?: string[];
+  machine_pins_missed?: string[];
+  visit_status: 'full_collection' | 'partial_collection' | 'no_collection' | 'pending';
+  technician_name?: string;
+  employee_id?: string;
+  technician_id?: number;
+  org_name?: string;
+  org_id?: number;
+}
+
 export interface UploadHistory {
   id: number;
   processed_at: string;

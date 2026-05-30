@@ -8,7 +8,7 @@ import GapBars from '../components/charts/GapBars';
 import EngagementDonut from '../components/charts/EngagementDonut';
 import TechHoursChart from '../components/charts/TechHoursChart';
 import ExportButton from '../components/ExportButton';
-import { SummaryStats, BiRow, TechnicianReport, Machine, FieldVisitNoCollection, Activity } from '../types';
+import { SummaryStats, BiRow, TechnicianReport, Machine, FieldVisitNoCollection, Activity, VisitManagement } from '../types';
 
 const POLL_MS = 30_000;
 
@@ -21,6 +21,7 @@ export default function DashboardPage() {
   const [orgData, setOrgData] = useState<{ name: string; offline_machines: number }[]>([]);
   const [visits, setVisits] = useState<FieldVisitNoCollection[]>([]);
   const [liveActivities, setLiveActivities] = useState<Activity[]>([]);
+  const [visitData, setVisitData] = useState<VisitManagement[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -31,13 +32,17 @@ export default function DashboardPage() {
       api.get<{ name: string; offline_machines: number }[]>('/reports/organizations'),
       api.get<FieldVisitNoCollection[]>('/visits/no-collection'),
       api.get<Activity[]>('/activities', { params: { status: 'in_progress' } }),
-    ]).then(([sum, bi, tech, orgs, v, live]) => {
+      api.get<VisitManagement[]>('/visits/management', {
+        params: { from: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString() },
+      }),
+    ]).then(([sum, bi, tech, orgs, v, live, vm]) => {
       setSummary(sum.data);
       setBiData(bi.data);
       setTechData(tech.data);
       setOrgData(orgs.data.slice(0, 10));
       setVisits(v.data);
       setLiveActivities(live.data);
+      setVisitData(vm.data);
     }).catch(console.error)
       .finally(() => setLoading(false));
   }, []);
@@ -224,7 +229,120 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {/* Bloco 3 — Campo */}
+      {/* Bloco 3 — Conformidade de Visitas */}
+      {(() => {
+        const nonPending = visitData.filter((v) => v.visit_status !== 'pending');
+        const full = nonPending.filter((v) => v.visit_status === 'full_collection').length;
+        const partial = nonPending.filter((v) => v.visit_status === 'partial_collection').length;
+        const noCol = nonPending.filter((v) => v.visit_status === 'no_collection').length;
+        const compliancePct = nonPending.length > 0 ? Math.round((full / nonPending.length) * 100) : 0;
+
+        // Top 3 technicians by compliance rate
+        type TechStat = { name: string; full: number; total: number };
+        const techMap = new Map<number, TechStat>();
+        nonPending.forEach((v) => {
+          const key = v.technician_id ?? 0;
+          const s = techMap.get(key) ?? { name: v.technician_name ?? '?', full: 0, total: 0 };
+          s.total++;
+          if (v.visit_status === 'full_collection') s.full++;
+          techMap.set(key, s);
+        });
+        const topTechs = Array.from(techMap.values())
+          .filter((s) => s.total > 0)
+          .map((s) => ({ name: s.name, pct: Math.round((s.full / s.total) * 100), total: s.total }))
+          .sort((a, b) => b.pct - a.pct)
+          .slice(0, 3);
+
+        // Alert: technicians with 2+ consecutive no_collection
+        const techVisits = new Map<number, VisitManagement[]>();
+        visitData.forEach((v) => {
+          const key = v.technician_id ?? 0;
+          const arr = techVisits.get(key) ?? [];
+          arr.push(v);
+          techVisits.set(key, arr);
+        });
+        const alertTechs: string[] = [];
+        techVisits.forEach((vs) => {
+          const sorted = [...vs].sort(
+            (a, b) => new Date(b.detected_at).getTime() - new Date(a.detected_at).getTime()
+          );
+          if (
+            sorted.length >= 2 &&
+            sorted[0].visit_status === 'no_collection' &&
+            sorted[1].visit_status === 'no_collection'
+          ) {
+            alertTechs.push(sorted[0].technician_name ?? '?');
+          }
+        });
+
+        if (nonPending.length === 0) return null;
+
+        return (
+          <section>
+            <h2 className="text-lg font-semibold text-gray-800 mb-3">Conformidade de Visitas — últimos 7 dias</h2>
+
+            {/* Alert banner */}
+            {alertTechs.length > 0 && (
+              <div className="mb-4 bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
+                <span className="text-red-500 text-xl">⚠️</span>
+                <div>
+                  <p className="font-semibold text-red-800 text-sm">Técnicos com 2+ visitas seguidas sem coleta</p>
+                  <p className="text-red-700 text-sm mt-0.5">{alertTechs.join(', ')}</p>
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+              <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 col-span-2 md:col-span-1 flex flex-col items-center justify-center">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Conformidade</p>
+                <p className={`text-4xl font-bold ${compliancePct >= 80 ? 'text-green-600' : compliancePct >= 50 ? 'text-yellow-600' : 'text-red-600'}`}>
+                  {compliancePct}%
+                </p>
+                <p className="text-xs text-gray-400 mt-1">{nonPending.length} visitas avaliadas</p>
+              </div>
+              <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 flex flex-col justify-between">
+                <p className="text-xs font-semibold text-gray-400 uppercase">Coleta Completa</p>
+                <p className="text-2xl font-bold text-green-600">{full}</p>
+              </div>
+              <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 flex flex-col justify-between">
+                <p className="text-xs font-semibold text-gray-400 uppercase">Coleta Parcial</p>
+                <p className="text-2xl font-bold text-yellow-600">{partial}</p>
+              </div>
+              <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 flex flex-col justify-between">
+                <p className="text-xs font-semibold text-gray-400 uppercase">Sem Coleta</p>
+                <p className="text-2xl font-bold text-red-600">{noCol}</p>
+              </div>
+            </div>
+
+            {/* Top 3 technicians */}
+            {topTechs.length > 0 && (
+              <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+                <h3 className="font-semibold text-gray-700 text-sm mb-3">Top 3 Técnicos por Conformidade</h3>
+                <div className="space-y-2">
+                  {topTechs.map((t, i) => (
+                    <div key={t.name} className="flex items-center gap-3">
+                      <span className="text-xs font-bold text-gray-400 w-4">{i + 1}.</span>
+                      <span className="text-sm text-gray-700 flex-1">{t.name}</span>
+                      <div className="flex items-center gap-2">
+                        <div
+                          className={`h-2 rounded ${t.pct >= 80 ? 'bg-green-400' : t.pct >= 50 ? 'bg-yellow-400' : 'bg-red-400'}`}
+                          style={{ width: `${Math.max(8, t.pct)}px` }}
+                        />
+                        <span className={`text-sm font-bold w-10 text-right ${t.pct >= 80 ? 'text-green-600' : t.pct >= 50 ? 'text-yellow-600' : 'text-red-600'}`}>
+                          {t.pct}%
+                        </span>
+                        <span className="text-xs text-gray-400">({t.total})</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </section>
+        );
+      })()}
+
+      {/* Bloco 4 — Campo */}
       <section>
         <h2 className="text-lg font-semibold text-gray-800 mb-3">Indicadores de Campo</h2>
 

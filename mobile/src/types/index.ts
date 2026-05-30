@@ -69,6 +69,19 @@ export interface PendingVisit {
   recorded_at: string;
 }
 
+export interface NearbyPendingMachine {
+  pin?: string;
+  days_offline?: number;
+  machine_hours?: number;
+}
+
+export interface NearbyOrg {
+  org_id: number;
+  org_name: string;
+  distance_km: number;
+  pending_machines: NearbyPendingMachine[];
+}
+
 export interface OrgCache {
   data: Organization[];
   timestamp: number;
