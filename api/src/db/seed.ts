@@ -5,12 +5,12 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 async function seed(): Promise<void> {
-  const hash = await bcrypt.hash('admin123', 10);
+  const hash = await bcrypt.hash('DataSync2024!', 12);
   const client = await pool.connect();
   try {
     await client.query(
       `INSERT INTO technicians (name, email, role, active, password_hash)
-       VALUES ('Admin', 'admin@northgreen.com.br', 'admin', TRUE, $1)
+       VALUES ('Admin', 'atendimento@sincronus.com.br', 'admin', TRUE, $1)
        ON CONFLICT (email) DO UPDATE
          SET password_hash = EXCLUDED.password_hash,
              name          = EXCLUDED.name,
@@ -18,7 +18,7 @@ async function seed(): Promise<void> {
              active        = EXCLUDED.active`,
       [hash]
     );
-    console.log('Admin account seeded: admin@northgreen.com.br');
+    console.log('Admin account seeded: atendimento@sincronus.com.br');
   } finally {
     client.release();
     await pool.end();

@@ -51,7 +51,7 @@ export default function LoginPage() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="admin@northgreen.com.br"
+              placeholder="atendimento@sincronus.com.br"
               autoComplete="email"
               className="w-full border border-gray-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-jd-green"
             />

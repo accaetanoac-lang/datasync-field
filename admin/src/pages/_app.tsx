@@ -2,6 +2,7 @@ import type { AppProps } from 'next/app';
 import Head from 'next/head';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
+import { useEffect, useState } from 'react';
 import '../styles/globals.css';
 
 const NAV = [
@@ -17,6 +18,23 @@ const NAV = [
 export default function App({ Component, pageProps }: AppProps) {
   const router = useRouter();
   const isLogin = router.pathname === '/login';
+  const [authChecked, setAuthChecked] = useState(false);
+
+  useEffect(() => {
+    if (isLogin) {
+      setAuthChecked(true);
+      return;
+    }
+    const token = typeof window !== 'undefined' ? localStorage.getItem('admin_token') : null;
+    if (!token) {
+      router.replace('/login');
+    } else {
+      setAuthChecked(true);
+    }
+  }, [isLogin, router]);
+
+  // Avoid flashing the layout while redirecting unauthenticated users
+  if (!isLogin && !authChecked) return null;
 
   return (
     <>
