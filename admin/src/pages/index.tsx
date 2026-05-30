@@ -37,12 +37,12 @@ export default function DashboardPage() {
       }),
     ]).then(([sum, bi, tech, orgs, v, live, vm]) => {
       setSummary(sum.data);
-      setBiData(bi.data);
-      setTechData(tech.data);
-      setOrgData(orgs.data.slice(0, 10));
-      setVisits(v.data);
-      setLiveActivities(live.data);
-      setVisitData(vm.data);
+      setBiData(Array.isArray(bi.data) ? bi.data : []);
+      setTechData(Array.isArray(tech.data) ? tech.data : []);
+      setOrgData(Array.isArray(orgs.data) ? orgs.data.slice(0, 10) : []);
+      setVisits(Array.isArray(v.data) ? v.data : []);
+      setLiveActivities(Array.isArray(live.data) ? live.data : []);
+      setVisitData(Array.isArray(vm.data) ? vm.data : []);
     }).catch(console.error)
       .finally(() => setLoading(false));
   }, []);
@@ -50,7 +50,7 @@ export default function DashboardPage() {
   const refreshLive = useCallback(async () => {
     try {
       const res = await api.get<Activity[]>('/activities', { params: { status: 'in_progress' } });
-      setLiveActivities(res.data);
+      setLiveActivities(Array.isArray(res.data) ? res.data : []);
     } catch { /* silent */ }
   }, []);
 

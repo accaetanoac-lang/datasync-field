@@ -27,9 +27,11 @@ export default function OrganizationsPage() {
         api.get<OrgReport[]>('/reports/organizations'),
         api.get<BiRow[]>('/reports/bi'),
       ]);
-      setOrgs(orgRes.data);
+      setOrgs(Array.isArray(orgRes.data) ? orgRes.data : []);
       const biMap: Record<number, BiRow> = {};
-      for (const row of biRes.data) biMap[row.org_id] = row;
+      if (Array.isArray(biRes.data)) {
+        for (const row of biRes.data) biMap[row.org_id] = row;
+      }
       setBiData(biMap);
       setLastUpdated(new Date());
     } catch (err) {

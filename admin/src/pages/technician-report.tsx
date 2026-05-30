@@ -43,7 +43,7 @@ export default function TechnicianReportPage() {
       if (from) params.from = from;
       if (to)   params.to = to;
       const res = await api.get<TechnicianDetail[]>('/reports/technicians', { params });
-      setData(res.data);
+      setData(Array.isArray(res.data) ? res.data : []);
       setLoaded(true);
     } catch (err) {
       console.error(err);

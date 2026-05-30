@@ -8,6 +8,7 @@ const router = Router();
 router.use(authMiddleware, adminOnly);
 
 router.get('/summary', async (_req: Request, res: Response): Promise<void> => {
+  try {
   const [machineStats] = await query<{
     total: string;
     range_16_60: string;
@@ -52,9 +53,14 @@ router.get('/summary', async (_req: Request, res: Response): Promise<void> => {
     },
     organizations_total: parseInt(orgCount?.count ?? '0', 10),
   });
+  } catch (err) {
+    console.error('/reports/summary error:', err);
+    res.status(500).json({ machines: { total: 0, range_30_60: 0, range_61_365: 0, range_365plus: 0, no_connection_date: 0 }, hectares: { risk_acres: 0, highly_engaged_acres: 0 }, organizations_total: 0 });
+  }
 });
 
 router.get('/technicians', async (req: Request, res: Response): Promise<void> => {
+  try {
   // Support both date_from/date_to and from/to aliases; detail=true returns nested activities
   const { date_from, date_to, from, to, detail } = req.query as Record<string, string>;
   const fromDate = date_from || from || '';
@@ -162,9 +168,14 @@ router.get('/technicians', async (req: Request, res: Response): Promise<void> =>
   );
 
   res.json(rows);
+  } catch (err) {
+    console.error('/reports/technicians error:', err);
+    res.status(500).json([]);
+  }
 });
 
 router.get('/organizations', async (_req: Request, res: Response): Promise<void> => {
+  try {
   const rows = await query(
     `SELECT
        o.id,
@@ -186,9 +197,14 @@ router.get('/organizations', async (_req: Request, res: Response): Promise<void>
   );
 
   res.json(rows);
+  } catch (err) {
+    console.error('/reports/organizations error:', err);
+    res.status(500).json([]);
+  }
 });
 
 router.get('/bi', async (_req: Request, res: Response): Promise<void> => {
+  try {
   // Full BI dataset — cross join of latest CDE + GAP per org
   const rows = await query(
     `SELECT
@@ -247,6 +263,10 @@ router.get('/bi', async (_req: Request, res: Response): Promise<void> => {
   );
 
   res.json(rows);
+  } catch (err) {
+    console.error('/reports/bi error:', err);
+    res.status(500).json([]);
+  }
 });
 
 router.get('/export', async (req: Request, res: Response): Promise<void> => {

@@ -59,7 +59,7 @@ export default function VisitManagementPage() {
         Object.entries(filters).filter(([, v]) => v !== '')
       );
       const res = await api.get<VisitManagement[]>('/visits/management', { params });
-      setVisits(res.data);
+      setVisits(Array.isArray(res.data) ? res.data : []);
     } catch (err) {
       console.error(err);
     } finally {

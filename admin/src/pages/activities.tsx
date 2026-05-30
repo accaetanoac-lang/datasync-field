@@ -25,7 +25,7 @@ export default function ActivitiesPage() {
         Object.entries(filters).filter(([, v]) => v !== '')
       );
       const res = await api.get<Activity[]>('/activities', { params });
-      setActivities(res.data);
+      setActivities(Array.isArray(res.data) ? res.data : []);
       setLastUpdated(new Date());
     } catch (err) {
       console.error(err);
