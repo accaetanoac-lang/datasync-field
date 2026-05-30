@@ -8,6 +8,8 @@ on:
 env:
   AWS_REGION: us-east-1
   ECR_REGISTRY: 496795891165.dkr.ecr.us-east-1.amazonaws.com
+  ECS_SERVICE_NAME: datasync-field-api
+  ECS_CONTAINER_NAME: api
 
 # ─────────────────────────────────────────────────────────────
 # Detect which parts of the codebase changed
@@ -114,7 +116,6 @@ jobs:
       - name: Inject secrets into task definition
         id: render-task-def
         run: |
-          # Read the template, substitute DATABASE_URL and JWT_SECRET, write to temp file
           jq --arg db   "${{ secrets.DATABASE_URL }}" \
              --arg jwt  "${{ secrets.JWT_SECRET }}" \
              --arg img  "${{ steps.build-image.outputs.image }}" \
@@ -128,7 +129,7 @@ jobs:
         id: register-task-def
         run: |
           TASK_DEF_ARN=$(aws ecs register-task-definition \
-            --cli-input-json file://${{ steps.render-task-def.outputs.task-def }} \
+            --cli-input-json file:///tmp/task-definition-filled.json \
             --region ${{ env.AWS_REGION }} \
             --query "taskDefinition.taskDefinitionArn" --output text)
           echo "task-def-arn=$TASK_DEF_ARN" >> $GITHUB_OUTPUT
@@ -137,7 +138,7 @@ jobs:
         run: |
           aws ecs update-service \
             --cluster ${{ secrets.ECS_CLUSTER_NAME }} \
-            --service  datasync-field-api-service \
+            --service  ${{ env.ECS_SERVICE_NAME }} \
             --task-definition ${{ steps.register-task-def.outputs.task-def-arn }} \
             --force-new-deployment \
             --region ${{ env.AWS_REGION }}
@@ -146,7 +147,7 @@ jobs:
         run: |
           aws ecs wait services-stable \
             --cluster ${{ secrets.ECS_CLUSTER_NAME }} \
-            --services datasync-field-api-service \
+            --services ${{ env.ECS_SERVICE_NAME }} \
             --region ${{ env.AWS_REGION }}
 
   # ─────────────────────────────────────────────────────────────
