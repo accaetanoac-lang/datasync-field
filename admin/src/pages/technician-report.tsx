@@ -61,8 +61,8 @@ export default function TechnicianReportPage() {
 
   // Flat rows for Excel export (one row per activity)
   const exportRows = data.flatMap((t) =>
-    t.activities.length
-      ? t.activities.map((a: TechnicianActivity) => ({
+    (t.activities ?? []).length
+      ? (t.activities ?? []).map((a: TechnicianActivity) => ({
           Técnico: t.name,
           ID: t.employee_id,
           Data: fmtDate(a.started_at),
@@ -202,7 +202,7 @@ export default function TechnicianReportPage() {
                       {isOpen && (
                         <tr className="border-b border-gray-100 bg-gray-50/60">
                           <td colSpan={10} className="px-8 py-4">
-                            {t.activities.length === 0 ? (
+                            {(t.activities ?? []).length === 0 ? (
                               <p className="text-gray-400 text-sm italic">Nenhuma atividade no período.</p>
                             ) : (
                               <table className="w-full text-xs">
@@ -218,7 +218,7 @@ export default function TechnicianReportPage() {
                                   </tr>
                                 </thead>
                                 <tbody>
-                                  {t.activities.map((a: TechnicianActivity) => (
+                                  {(t.activities ?? []).map((a: TechnicianActivity) => (
                                     <tr key={a.id} className="border-b border-gray-100 last:border-0">
                                       <td className="py-1.5 pr-4 text-gray-600">{fmtDate(a.started_at)}</td>
                                       <td className="py-1.5 pr-4 text-gray-800">{a.org_name ?? '—'}</td>

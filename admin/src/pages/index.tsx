@@ -36,7 +36,22 @@ export default function DashboardPage() {
         params: { from: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString() },
       }),
     ]).then(([sum, bi, tech, orgs, v, live, vm]) => {
-      setSummary(sum.data);
+      // Normalize summary so nested properties are always defined
+      const raw = sum.data as Partial<SummaryStats> | null | undefined;
+      setSummary({
+        machines: {
+          total:             raw?.machines?.total             ?? 0,
+          range_30_60:       raw?.machines?.range_30_60       ?? 0,
+          range_61_365:      raw?.machines?.range_61_365      ?? 0,
+          range_365plus:     raw?.machines?.range_365plus     ?? 0,
+          no_connection_date: raw?.machines?.no_connection_date ?? 0,
+        },
+        hectares: {
+          risk_acres:           raw?.hectares?.risk_acres           ?? 0,
+          highly_engaged_acres: raw?.hectares?.highly_engaged_acres ?? 0,
+        },
+        organizations_total: raw?.organizations_total ?? 0,
+      });
       setBiData(Array.isArray(bi.data) ? bi.data : []);
       setTechData(Array.isArray(tech.data) ? tech.data : []);
       setOrgData(Array.isArray(orgs.data) ? orgs.data.slice(0, 10) : []);
@@ -211,13 +226,13 @@ export default function DashboardPage() {
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
           <StatCard
             title="Hectares em Risco"
-            value={summary.hectares.risk_acres.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
+            value={(summary.hectares?.risk_acres ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
             subtitle="Risk Acres total"
             color="text-red-600"
           />
           <StatCard
             title="Hectares Altamente Engajados"
-            value={summary.hectares.highly_engaged_acres.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
+            value={(summary.hectares?.highly_engaged_acres ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
             subtitle="Highly Engaged Acres"
             color="text-green-700"
           />
