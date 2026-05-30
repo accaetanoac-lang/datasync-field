@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import api from '../lib/api';
 import { Organization, BiRow } from '../types';
 import ExportButton from '../components/ExportButton';
+
+const POLL_MS = 30_000;
 
 interface OrgReport extends Organization {
   offline_machines: number;
@@ -15,21 +17,34 @@ export default function OrganizationsPage() {
   const [orgs, setOrgs] = useState<OrgReport[]>([]);
   const [biData, setBiData] = useState<Record<number, BiRow>>({});
   const [loading, setLoading] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<OrgReport | null>(null);
 
-  useEffect(() => {
-    Promise.all([
-      api.get<OrgReport[]>('/reports/organizations'),
-      api.get<BiRow[]>('/reports/bi'),
-    ]).then(([orgRes, biRes]) => {
+  const load = useCallback(async () => {
+    try {
+      const [orgRes, biRes] = await Promise.all([
+        api.get<OrgReport[]>('/reports/organizations'),
+        api.get<BiRow[]>('/reports/bi'),
+      ]);
       setOrgs(orgRes.data);
       const biMap: Record<number, BiRow> = {};
       for (const row of biRes.data) biMap[row.org_id] = row;
       setBiData(biMap);
-    }).catch(console.error)
-      .finally(() => setLoading(false));
+      setLastUpdated(new Date());
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    const interval = setInterval(load, POLL_MS);
+    return () => clearInterval(interval);
+  }, [load]);
 
   const filtered = orgs.filter((o) =>
     o.name.toLowerCase().includes(search.toLowerCase())
@@ -42,7 +57,16 @@ export default function OrganizationsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Organizações</h1>
-          <p className="text-gray-500 text-sm mt-1">{filtered.length} organizações</p>
+          <p className="text-gray-500 text-sm mt-1 flex items-center gap-2">
+            {filtered.length} organizações
+            {lastUpdated && (
+              <span className="flex items-center gap-1 text-gray-400">
+                ·
+                <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse inline-block" />
+                Atualizado às {lastUpdated.toLocaleTimeString('pt-BR')}
+              </span>
+            )}
+          </p>
         </div>
         <ExportButton
           data={filtered.map((o) => {

@@ -1,11 +1,14 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import api from '../lib/api';
 import { Activity } from '../types';
 import ExportButton from '../components/ExportButton';
 
+const POLL_MS = 30_000;
+
 export default function ActivitiesPage() {
   const [activities, setActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [filters, setFilters] = useState({
     tech_id: '',
     org_id: '',
@@ -23,6 +26,7 @@ export default function ActivitiesPage() {
       );
       const res = await api.get<Activity[]>('/activities', { params });
       setActivities(res.data);
+      setLastUpdated(new Date());
     } catch (err) {
       console.error(err);
     } finally {
@@ -31,6 +35,11 @@ export default function ActivitiesPage() {
   }, [filters]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    const interval = setInterval(load, POLL_MS);
+    return () => clearInterval(interval);
+  }, [load]);
 
   const exportCsv = async () => {
     try {
@@ -57,12 +66,31 @@ export default function ActivitiesPage() {
     no_use: 'bg-gray-100 text-gray-600',
   };
 
+  const inProgressCount = activities.filter((a) => a.status === 'in_progress').length;
+
   return (
     <div className="max-w-7xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Atividades Detalhadas</h1>
-          <p className="text-gray-500 text-sm mt-1">{activities.length} registros</p>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold text-gray-900">Atividades Detalhadas</h1>
+            {inProgressCount > 0 && (
+              <span className="flex items-center gap-1.5 bg-blue-50 text-blue-700 text-xs font-semibold px-2.5 py-1 rounded-full border border-blue-200">
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse inline-block" />
+                {inProgressCount} em andamento
+              </span>
+            )}
+          </div>
+          <p className="text-gray-500 text-sm mt-1 flex items-center gap-2">
+            {activities.length} registros
+            {lastUpdated && (
+              <span className="flex items-center gap-1 text-gray-400">
+                ·
+                <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse inline-block" />
+                Atualizado às {lastUpdated.toLocaleTimeString('pt-BR')}
+              </span>
+            )}
+          </p>
         </div>
         <div className="flex gap-2">
           <button
@@ -153,7 +181,14 @@ export default function ActivitiesPage() {
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {activities.map((a) => (
-                  <tr key={a.id} className="hover:bg-gray-50 transition-colors">
+                  <tr
+                    key={a.id}
+                    className={`transition-colors ${
+                      a.status === 'in_progress'
+                        ? 'bg-blue-50/50 hover:bg-blue-50'
+                        : 'hover:bg-gray-50'
+                    }`}
+                  >
                     <td className="px-4 py-3 text-gray-600">
                       {new Date(a.created_at).toLocaleDateString('pt-BR')}
                     </td>
@@ -179,6 +214,9 @@ export default function ActivitiesPage() {
                     </td>
                     <td className="px-4 py-3">
                       <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[a.status] ?? 'bg-gray-100 text-gray-500'}`}>
+                        {a.status === 'in_progress' && (
+                          <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse mr-1" />
+                        )}
                         {a.status}
                       </span>
                     </td>

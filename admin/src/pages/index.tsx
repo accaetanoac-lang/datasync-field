@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import api from '../lib/api';
 import StatCard from '../components/ui/StatCard';
@@ -8,7 +8,9 @@ import GapBars from '../components/charts/GapBars';
 import EngagementDonut from '../components/charts/EngagementDonut';
 import TechHoursChart from '../components/charts/TechHoursChart';
 import ExportButton from '../components/ExportButton';
-import { SummaryStats, BiRow, TechnicianReport, Machine, FieldVisitNoCollection } from '../types';
+import { SummaryStats, BiRow, TechnicianReport, Machine, FieldVisitNoCollection, Activity } from '../types';
+
+const POLL_MS = 30_000;
 
 const MachineMap = dynamic(() => import('../components/map/MachineMap'), { ssr: false });
 
@@ -18,6 +20,7 @@ export default function DashboardPage() {
   const [techData, setTechData] = useState<TechnicianReport[]>([]);
   const [orgData, setOrgData] = useState<{ name: string; offline_machines: number }[]>([]);
   const [visits, setVisits] = useState<FieldVisitNoCollection[]>([]);
+  const [liveActivities, setLiveActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -27,15 +30,29 @@ export default function DashboardPage() {
       api.get<TechnicianReport[]>('/reports/technicians'),
       api.get<{ name: string; offline_machines: number }[]>('/reports/organizations'),
       api.get<FieldVisitNoCollection[]>('/visits/no-collection'),
-    ]).then(([sum, bi, tech, orgs, v]) => {
+      api.get<Activity[]>('/activities', { params: { status: 'in_progress' } }),
+    ]).then(([sum, bi, tech, orgs, v, live]) => {
       setSummary(sum.data);
       setBiData(bi.data);
       setTechData(tech.data);
       setOrgData(orgs.data.slice(0, 10));
       setVisits(v.data);
+      setLiveActivities(live.data);
     }).catch(console.error)
       .finally(() => setLoading(false));
   }, []);
+
+  const refreshLive = useCallback(async () => {
+    try {
+      const res = await api.get<Activity[]>('/activities', { params: { status: 'in_progress' } });
+      setLiveActivities(res.data);
+    } catch { /* silent */ }
+  }, []);
+
+  useEffect(() => {
+    const interval = setInterval(refreshLive, POLL_MS);
+    return () => clearInterval(interval);
+  }, [refreshLive]);
 
   if (loading) {
     return (
@@ -210,6 +227,47 @@ export default function DashboardPage() {
       {/* Bloco 3 — Campo */}
       <section>
         <h2 className="text-lg font-semibold text-gray-800 mb-3">Indicadores de Campo</h2>
+
+        {/* Live collections panel */}
+        <div className={`rounded-xl border p-5 mb-6 ${liveActivities.length > 0 ? 'bg-blue-50 border-blue-200' : 'bg-gray-50 border-gray-200'}`}>
+          <div className="flex items-center gap-2 mb-3">
+            <span className={`w-2 h-2 rounded-full inline-block ${liveActivities.length > 0 ? 'bg-blue-500 animate-pulse' : 'bg-gray-300'}`} />
+            <h3 className={`font-semibold text-sm ${liveActivities.length > 0 ? 'text-blue-800' : 'text-gray-500'}`}>
+              Coletas em Andamento — {liveActivities.length === 0 ? 'Nenhuma no momento' : `${liveActivities.length} ativa${liveActivities.length > 1 ? 's' : ''}`}
+            </h3>
+          </div>
+          {liveActivities.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-blue-200">
+                    <th className="text-left py-2 text-blue-700 font-medium">Técnico</th>
+                    <th className="text-left py-2 text-blue-700 font-medium">Fazenda</th>
+                    <th className="text-left py-2 text-blue-700 font-medium">Máquina</th>
+                    <th className="text-left py-2 text-blue-700 font-medium">Método</th>
+                    <th className="text-right py-2 text-blue-700 font-medium">Iniciada às</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {liveActivities.map((a) => (
+                    <tr key={a.id} className="border-b border-blue-100">
+                      <td className="py-2 font-medium text-gray-900">{a.technician_name ?? '—'}</td>
+                      <td className="py-2 text-gray-700">{a.org_name ?? '—'}</td>
+                      <td className="py-2 font-mono text-xs text-gray-600">{a.machine_pin ?? a.machine_custom_name ?? '—'}</td>
+                      <td className="py-2 text-gray-600 text-xs">
+                        {a.method === 'starlink_data_sync' ? 'Starlink + Data Sync' : 'Pen Drive'}
+                      </td>
+                      <td className="py-2 text-right text-gray-500 text-xs">
+                        {new Date(a.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
         <TechHoursChart data={techData} />
 
         {visits.length > 0 && (
