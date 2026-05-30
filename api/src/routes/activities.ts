@@ -33,6 +33,33 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
+  // Conflict check: another technician already in_progress or completed for this machine
+  if (machine_id) {
+    const conflict = await queryOne<{ status: string; technician_name: string | null }>(
+      `SELECT a.status, t.name AS technician_name
+       FROM activities a
+       LEFT JOIN technicians t ON t.id = a.technician_id
+       WHERE a.machine_id = $1
+         AND a.technician_id != $2
+         AND a.status IN ('in_progress', 'completed')
+       ORDER BY CASE WHEN a.status = 'completed' THEN 0 ELSE 1 END
+       LIMIT 1`,
+      [machine_id, req.user!.id]
+    );
+
+    if (conflict) {
+      if (conflict.status === 'completed') {
+        res.status(409).json({ error: 'Dados desta máquina já foram coletados por outro técnico' });
+      } else {
+        res.status(409).json({
+          error: 'Esta máquina já está sendo coletada por outro técnico agora',
+          technician: conflict.technician_name,
+        });
+      }
+      return;
+    }
+  }
+
   // Validate hours diff for JD machines
   if (machine_id && current_hours !== undefined) {
     const machine = await queryOne<Machine>(

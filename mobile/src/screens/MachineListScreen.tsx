@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
-  ActivityIndicator, RefreshControl, Alert,
+  ActivityIndicator, RefreshControl, Alert, Animated,
 } from 'react-native';
 import { useNavigation, useRoute, RouteProp, useFocusEffect } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
@@ -14,6 +14,7 @@ type Nav = StackNavigationProp<RootStackParamList, 'MachineList'>;
 type Route = RouteProp<RootStackParamList, 'MachineList'>;
 
 const BADGE_COLORS = { yellow: '#F59E0B', red: '#EF4444', black: '#1a1a1a' };
+const POLL_INTERVAL_MS = 30_000;
 
 export default function MachineListScreen() {
   const navigation = useNavigation<Nav>();
@@ -23,29 +24,55 @@ export default function MachineListScreen() {
   const [machines, setMachines] = useState<Machine[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const toastOpacity = useRef(new Animated.Value(0)).current;
+  const prevMachineIds = useRef<Set<number>>(new Set());
 
-  const loadMachines = useCallback(async (isRefresh = false) => {
+  const showToast = useCallback((msg: string) => {
+    setToastMessage(msg);
+    Animated.sequence([
+      Animated.timing(toastOpacity, { toValue: 1, duration: 300, useNativeDriver: true }),
+      Animated.delay(2500),
+      Animated.timing(toastOpacity, { toValue: 0, duration: 400, useNativeDriver: true }),
+    ]).start(() => setToastMessage(null));
+  }, [toastOpacity]);
+
+  const loadMachines = useCallback(async (isRefresh = false, isPolling = false) => {
     if (isRefresh) setRefreshing(true);
-    else setLoading(true);
+    else if (!isPolling) setLoading(true);
 
     try {
       const data = await getOrgMachines(org.id);
+
+      if (isPolling && prevMachineIds.current.size > 0) {
+        const newIds = new Set(data.map((m) => m.id));
+        const removedCount = [...prevMachineIds.current].filter((id) => !newIds.has(id)).length;
+        if (removedCount > 0) {
+          showToast(`${removedCount} máquina${removedCount > 1 ? 's' : ''} atualizada${removedCount > 1 ? 's' : ''}`);
+        }
+      }
+
+      prevMachineIds.current = new Set(data.map((m) => m.id));
       setMachines(data);
       await setCachedMachines(org.id, data);
     } catch {
       const cached = await getCachedMachines(org.id);
       if (cached) {
         setMachines(cached.data);
-      } else {
+      } else if (!isPolling) {
         Alert.alert('Erro', 'Não foi possível carregar as máquinas.');
       }
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [org.id]);
+  }, [org.id, showToast]);
 
-  useFocusEffect(useCallback(() => { loadMachines(); }, [loadMachines]));
+  useFocusEffect(useCallback(() => {
+    loadMachines();
+    const interval = setInterval(() => loadMachines(false, true), POLL_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [loadMachines]));
 
   const renderBadge = (machine: Machine) => {
     const badge = getOfflineBadge(machine.days_offline);
@@ -114,6 +141,12 @@ export default function MachineListScreen() {
           }
         />
       )}
+
+      {toastMessage && (
+        <Animated.View style={[styles.toast, { opacity: toastOpacity }]}>
+          <Text style={styles.toastText}>{toastMessage}</Text>
+        </Animated.View>
+      )}
     </View>
   );
 }
@@ -148,4 +181,14 @@ const styles = StyleSheet.create({
     margin: 8,
   },
   addButtonText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  toast: {
+    position: 'absolute',
+    bottom: 24,
+    alignSelf: 'center',
+    backgroundColor: 'rgba(30,30,30,0.88)',
+    borderRadius: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+  },
+  toastText: { color: '#fff', fontSize: 14, fontWeight: '600' },
 });

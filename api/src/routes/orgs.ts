@@ -59,6 +59,18 @@ router.get('/:id/machines', async (req: Request, res: Response): Promise<void> =
      FROM machines
      WHERE org_id = $1
        AND (days_offline >= 30 OR last_call_date IS NULL)
+       AND id NOT IN (
+         SELECT machine_id FROM activities
+         WHERE status = 'completed'
+           AND machine_id IS NOT NULL
+           AND created_at >= NOW() - INTERVAL '24 hours'
+       )
+       AND id NOT IN (
+         SELECT machine_id FROM activities
+         WHERE status = 'no_use'
+           AND machine_id IS NOT NULL
+           AND created_at >= NOW() - INTERVAL '30 days'
+       )
      ORDER BY days_offline DESC NULLS LAST`,
     [req.params.id]
   );

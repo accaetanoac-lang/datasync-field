@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
+import { AxiosError } from 'axios';
 import { startActivity, createNoUseActivity } from '../services/api';
 import { queueActivity } from '../services/sync';
 import { getCurrentLocation } from '../services/geolocation';
@@ -30,6 +31,7 @@ export default function MachineDetailScreen() {
   const [method, setMethod] = useState<Method | null>(null);
   const [loading, setLoading] = useState(false);
   const [noUseConfirmed, setNoUseConfirmed] = useState(false);
+  const [conflictError, setConflictError] = useState<string | null>(null);
 
   const lastHours = machine.machine_hours ?? 0;
 
@@ -155,8 +157,15 @@ export default function MachineDetailScreen() {
         });
       }
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Erro ao iniciar atividade.';
-      Alert.alert('Erro', msg);
+      if (err instanceof AxiosError && err.response?.status === 409) {
+        const data = err.response.data as { error: string; technician?: string };
+        setConflictError(
+          data.technician ? `Em coleta por: ${data.technician}` : 'Esta máquina já foi coletada'
+        );
+      } else {
+        const msg = err instanceof Error ? err.message : 'Erro ao iniciar atividade.';
+        Alert.alert('Erro', msg);
+      }
     } finally {
       setLoading(false);
     }
@@ -278,10 +287,16 @@ export default function MachineDetailScreen() {
                 ))}
               </View>
 
+              {conflictError && (
+                <View style={styles.conflictBanner}>
+                  <Text style={styles.conflictText}>{conflictError}</Text>
+                </View>
+              )}
+
               <TouchableOpacity
-                style={[styles.startButton, !method && styles.startButtonDisabled]}
+                style={[styles.startButton, (!method || !!conflictError) && styles.startButtonDisabled]}
                 onPress={handleStartActivity}
-                disabled={!method || loading}
+                disabled={!method || loading || !!conflictError}
               >
                 {loading
                   ? <ActivityIndicator color="#fff" />
@@ -381,6 +396,14 @@ const styles = StyleSheet.create({
   methodBtnActive: { borderColor: JD_GREEN, backgroundColor: '#f0fdf4' },
   methodBtnText: { color: '#555', fontWeight: '600', fontSize: 13, textAlign: 'center' },
   methodBtnTextActive: { color: JD_GREEN },
+  conflictBanner: {
+    backgroundColor: '#FEE2E2',
+    borderRadius: 8,
+    padding: 14,
+    borderLeftWidth: 4,
+    borderLeftColor: '#EF4444',
+  },
+  conflictText: { color: '#991B1B', fontWeight: '600', fontSize: 14 },
   startButton: {
     backgroundColor: JD_GREEN,
     borderRadius: 8,
