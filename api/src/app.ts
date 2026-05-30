@@ -16,6 +16,7 @@ dotenv.config();
 const app = express();
 
 const ALLOWED_ORIGINS = [
+  'https://d2ovygwehn91a3.cloudfront.net', // production admin dashboard
   'http://localhost:8081',
   'http://localhost:3002',
   ...(process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim()) : []),
