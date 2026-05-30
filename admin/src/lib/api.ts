@@ -1,7 +1,10 @@
 import axios from 'axios';
 
+// In production the dashboard is served from CloudFront which proxies /api/*
+// to the ALB — so relative /api keeps everything on HTTPS with no mixed content.
+// Local dev overrides this with NEXT_PUBLIC_API_URL=http://localhost:3001.
 const api = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001',
+  baseURL: process.env.NEXT_PUBLIC_API_URL ?? '/api',
   timeout: 30000,
 });
 

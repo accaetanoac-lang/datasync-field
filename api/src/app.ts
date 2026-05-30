@@ -41,6 +41,7 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// Direct routes (used by mobile app and direct ALB access)
 app.use('/auth', authRouter);
 app.use('/orgs', orgsRouter);
 app.use('/machines', machinesRouter);
@@ -49,6 +50,19 @@ app.use('/upload', uploadRouter);
 app.use('/reports', reportsRouter);
 app.use('/visits', visitsRouter);
 app.use('/technicians', techniciansRouter);
+
+// /api/* prefix routes — CloudFront proxies admin dashboard calls here over HTTPS
+app.get('/api/health', (_req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+app.use('/api/auth', authRouter);
+app.use('/api/orgs', orgsRouter);
+app.use('/api/machines', machinesRouter);
+app.use('/api/activities', activitiesRouter);
+app.use('/api/upload', uploadRouter);
+app.use('/api/reports', reportsRouter);
+app.use('/api/visits', visitsRouter);
+app.use('/api/technicians', techniciansRouter);
 
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not found' });
