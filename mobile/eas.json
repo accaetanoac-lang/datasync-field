@@ -4,11 +4,17 @@
   },
   "build": {
     "preview": {
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://d2ovygwehn91a3.cloudfront.net/api"
+      },
       "android": {
         "buildType": "apk"
       }
     },
     "production": {
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://d2ovygwehn91a3.cloudfront.net/api"
+      },
       "android": {
         "buildType": "apk"
       }
