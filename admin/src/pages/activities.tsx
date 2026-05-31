@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, KeyboardEvent } from 'react';
 import { useRouter } from 'next/router';
 import api from '../lib/api';
 import { Activity } from '../types';
@@ -11,7 +11,7 @@ export default function ActivitiesPage() {
   const [activities, setActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [photoModal, setPhotoModal] = useState<string | null>(null);
+  const [photoModal, setPhotoModal] = useState<{ url: string; caption: string } | null>(null);
   const [filters, setFilters] = useState({
     tech_id: '',
     org_id: '',
@@ -227,9 +227,12 @@ export default function ActivitiesPage() {
                     <td className="px-4 py-3">
                       {a.photo_url ? (
                         <button
-                          onClick={() => setPhotoModal(a.photo_url!)}
+                          onClick={() => setPhotoModal({
+                            url: a.photo_url!,
+                            caption: `Painel da máquina — ${a.technician_name ?? '—'} — ${new Date(a.photo_taken_at ?? a.created_at).toLocaleDateString('pt-BR')}`,
+                          })}
                           className="block"
-                          title="Ver foto"
+                          title="Ver foto completa"
                         >
                           <img
                             src={a.photo_url}
@@ -267,24 +270,38 @@ export default function ActivitiesPage() {
         )}
       </div>
 
-      {/* Photo modal */}
+      {/* Photo modal — full-screen overlay, click outside or ✕ to close */}
       {photoModal && (
         <div
-          className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4"
+          className="fixed inset-0 bg-black/85 z-50 flex flex-col items-center justify-center"
           onClick={() => setPhotoModal(null)}
+          onKeyDown={(e: KeyboardEvent<HTMLDivElement>) => e.key === 'Escape' && setPhotoModal(null)}
+          role="dialog"
+          aria-modal="true"
+          tabIndex={-1}
         >
-          <div className="relative max-w-2xl w-full" onClick={(e) => e.stopPropagation()}>
-            <button
-              onClick={() => setPhotoModal(null)}
-              className="absolute -top-10 right-0 text-white text-sm font-semibold hover:text-gray-300"
-            >
-              ✕ Fechar
-            </button>
+          {/* ✕ button — top-right, always visible */}
+          <button
+            onClick={() => setPhotoModal(null)}
+            className="absolute top-4 right-4 w-10 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/25 text-white text-xl transition-colors"
+            aria-label="Fechar"
+          >
+            ✕
+          </button>
+
+          {/* Image + caption — click inside doesn't close */}
+          <div
+            className="flex flex-col items-center gap-4 px-4 max-w-5xl w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
             <img
-              src={photoModal}
+              src={photoModal.url}
               alt="Painel da máquina"
-              className="w-full rounded-xl border-2 border-white shadow-2xl object-contain max-h-[80vh]"
+              className="max-h-[80vh] max-w-full object-contain rounded-lg shadow-2xl"
             />
+            <p className="text-white/90 text-sm text-center bg-black/50 px-5 py-2 rounded-full">
+              {photoModal.caption}
+            </p>
           </div>
         </div>
       )}
