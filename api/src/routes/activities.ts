@@ -142,9 +142,12 @@ router.post('/:id/photo', (req: Request, res: Response, next: NextFunction): voi
   const activityId = parseInt(req.params.id, 10);
 
   if (!req.file) {
+    console.error('Photo upload: no file received. Content-Type:', req.headers['content-type']);
     res.status(400).json({ error: 'No photo uploaded — send field "photo" as image file' });
     return;
   }
+
+  console.log('Photo received:', req.file.originalname, req.file.size, 'bytes', req.file.mimetype);
 
   const existing = await queryOne<{ id: number }>(
     'SELECT id FROM activities WHERE id = $1',
@@ -161,6 +164,7 @@ router.post('/:id/photo', (req: Request, res: Response, next: NextFunction): voi
     const key = `activities/${activityId}/panel_${timestamp}.jpg`;
     const bucket = 'datasync-field-uploads-496795891165';
 
+    console.log('Uploading to S3:', bucket, key);
     await s3.putObject({
       Bucket: bucket,
       Key: key,
