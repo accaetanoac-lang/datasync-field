@@ -18,6 +18,19 @@ router.get('/me', async (req: Request, res: Response): Promise<void> => {
   res.json(tech);
 });
 
+// Save or update push notification token for the authenticated technician
+router.post('/push-token', async (req: Request, res: Response): Promise<void> => {
+  const { push_token } = req.body as { push_token?: string };
+
+  if (!push_token) {
+    res.status(400).json({ error: 'push_token is required' });
+    return;
+  }
+
+  await query('UPDATE technicians SET push_token = $1 WHERE id = $2', [push_token, req.user!.id]);
+  res.json({ ok: true });
+});
+
 // All routes below are admin-only
 router.use(adminOnly);
 

@@ -39,26 +39,34 @@ export default function LoginScreen() {
     }
   };
 
+  const doLogin = async (employeeId: string) => {
+    setLoading(true);
+    try {
+      await login(employeeId);
+      // Navigation handled by AppNavigator via auth state change
+    } catch (err: unknown) {
+      const msg =
+        err instanceof Error
+          ? err.message
+          : 'Erro ao autenticar. Verifique seu ID.';
+      setError(msg);
+      setValue('');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleChange = async (text: string) => {
     const cleaned = text.toLowerCase().replace(/[^x0-9]/g, '');
     setValue(cleaned);
     setError(null);
 
     if (cleaned.length === 7 && EMPLOYEE_ID_REGEX.test(cleaned)) {
-      setLoading(true);
-      try {
-        await login(cleaned);
-        // Navigation handled by AppNavigator via auth state change
-      } catch (err: unknown) {
-        const msg =
-          err instanceof Error
-            ? err.message
-            : 'Erro ao autenticar. Verifique seu ID.';
-        setError(msg);
-        setValue('');
-      } finally {
-        setLoading(false);
-      }
+      Alert.alert(
+        'Permissões necessárias',
+        'Para receber alertas de máquinas próximas mesmo com o app fechado, precisamos de acesso à sua localização em background',
+        [{ text: 'Entendi', onPress: () => doLogin(cleaned) }]
+      );
     }
   };
 

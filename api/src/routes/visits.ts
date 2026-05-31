@@ -21,6 +21,12 @@ router.post('/geofence', async (req: Request, res: Response): Promise<void> => {
   const radiusKm = parseFloat(process.env.GEOFENCE_RADIUS_KM ?? '5');
   const technicianId = req.user!.id;
 
+  // Track last known location for server-side geofence notifier (migration 004)
+  query(
+    `UPDATE technicians SET last_known_lat = $1, last_known_lng = $2, last_location_at = NOW() WHERE id = $3`,
+    [tech_lat, tech_lng, technicianId]
+  ).catch(() => {});
+
   // Pending machines with GPS coords + org name, excluding already-collected today
   const machines = await query<{
     id: number;

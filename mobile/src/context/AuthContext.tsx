@@ -1,10 +1,15 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { login as apiLogin } from '../services/api';
+import * as Notifications from 'expo-notifications';
+import * as Location from 'expo-location';
+import { login as apiLogin, sendPushToken } from '../services/api';
+import { registerBackgroundTask } from '../services/backgroundLocation';
 import { Technician } from '../types';
 
 const TOKEN_KEY = 'auth_token';
 const TECH_KEY = 'auth_technician';
+
+const EXPO_PROJECT_ID = 'ee547311-b614-4bf5-981a-9f127f7ff445';
 
 interface AuthState {
   technician: Technician | null;
@@ -19,6 +24,27 @@ interface AuthContextValue extends AuthState {
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+
+async function setupNotifications(): Promise<void> {
+  try {
+    const { status: notifStatus } = await Notifications.requestPermissionsAsync();
+    if (notifStatus !== 'granted') return;
+
+    const { status: fgStatus } = await Location.requestForegroundPermissionsAsync();
+    if (fgStatus !== 'granted') return;
+
+    const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
+
+    const tokenData = await Notifications.getExpoPushTokenAsync({ projectId: EXPO_PROJECT_ID });
+    await sendPushToken(tokenData.data);
+
+    if (bgStatus === 'granted') {
+      await registerBackgroundTask();
+    }
+  } catch (err) {
+    console.warn('[AuthContext] Notification setup failed:', err);
+  }
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({
@@ -56,6 +82,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await AsyncStorage.setItem(TOKEN_KEY, token);
     await AsyncStorage.setItem(TECH_KEY, JSON.stringify(technician));
     setState({ token, technician, isAuthenticated: true, loading: false });
+    // Request permissions and register push token without blocking navigation
+    setupNotifications().catch(() => {});
   };
 
   // Clears all auth state from storage and memory — forces back to LoginScreen

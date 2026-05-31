@@ -1,8 +1,10 @@
-import React from 'react';
-import { NavigationContainer } from '@react-navigation/native';
+import React, { useEffect } from 'react';
+import { NavigationContainer, useNavigationContainerRef } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { ActivityIndicator, View } from 'react-native';
+import * as Notifications from 'expo-notifications';
 import { useAuth } from '../context/AuthContext';
+import { getOrg } from '../services/api';
 import LoginScreen from '../screens/LoginScreen';
 import SearchOrgScreen from '../screens/SearchOrgScreen';
 import MachineListScreen from '../screens/MachineListScreen';
@@ -32,6 +34,30 @@ const JD_GREEN = '#367C2B';
 
 export default function AppNavigator() {
   const { isAuthenticated, loading } = useAuth();
+  const navigationRef = useNavigationContainerRef<RootStackParamList>();
+
+  useEffect(() => {
+    const subscription = Notifications.addNotificationResponseReceivedListener(async (response) => {
+      const data = response.notification.request.content.data as {
+        screen?: string;
+        org_id?: number;
+        org_name?: string;
+      };
+
+      if (data.screen !== 'MachineList' || !data.org_id) return;
+
+      try {
+        const org = await getOrg(data.org_id);
+        if (navigationRef.isReady()) {
+          navigationRef.navigate('MachineList', { org });
+        }
+      } catch {
+        // User not logged in or org fetch failed — ignore
+      }
+    });
+
+    return () => subscription.remove();
+  }, []);
 
   if (loading) {
     return (
@@ -42,7 +68,7 @@ export default function AppNavigator() {
   }
 
   return (
-    <NavigationContainer>
+    <NavigationContainer ref={navigationRef}>
       <Stack.Navigator
         screenOptions={{
           headerStyle: { backgroundColor: JD_GREEN },

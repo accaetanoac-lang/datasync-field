@@ -115,4 +115,9 @@ export async function sendGeofence(
   return res.data;
 }
 
+// Push notifications
+export async function sendPushToken(push_token: string): Promise<void> {
+  await api.post('/technicians/push-token', { push_token });
+}
+
 export default api;

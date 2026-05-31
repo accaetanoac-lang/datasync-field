@@ -1,6 +1,7 @@
 import http from 'http';
 import app from './app';
 import { pool } from './db/client';
+import { startGeofenceNotifier } from './jobs/geofenceNotifier';
 
 const PORT = parseInt(process.env.PORT ?? '3001', 10);
 
@@ -11,6 +12,7 @@ async function start(): Promise<void> {
     await client.query('SELECT 1');
     client.release();
     console.log('Database connection established');
+    startGeofenceNotifier();
   } catch (err) {
     console.error('Failed to connect to database:', err);
     process.exit(1);
