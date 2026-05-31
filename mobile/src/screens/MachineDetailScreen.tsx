@@ -59,7 +59,7 @@ export default function MachineDetailScreen() {
     setHoursError(null);
     const hoursDiff = val - lastHours;
 
-    if (hoursDiff >= 50) {
+    if (hoursDiff >= 10) {
       navigation.navigate('Diagnosis', { machine, org, currentHours: val, hoursDiff });
       return;
     }
