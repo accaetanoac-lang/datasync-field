@@ -216,11 +216,11 @@ export default function NonJDMachineScreen() {
             </TouchableOpacity>
           </View>
 
-          {diff !== null && diff < 50 && (
+          {diff !== null && diff < 10 && (
             <>
               <View style={styles.noUseWarning}>
                 <Text style={styles.noUseTitle}>Máquina sem uso</Text>
-                <Text style={styles.noUseSubtitle}>Diferença de {diff.toFixed(1)} h (abaixo de 50 h)</Text>
+                <Text style={styles.noUseSubtitle}>Diferença de {diff.toFixed(1)} h (abaixo de 10 h)</Text>
               </View>
               <TouchableOpacity style={styles.grayButton} onPress={handleNoUse} disabled={loading}>
                 {loading
@@ -230,7 +230,7 @@ export default function NonJDMachineScreen() {
             </>
           )}
 
-          {diff !== null && diff >= 50 && (
+          {diff !== null && diff >= 10 && (
             <>
               <Text style={styles.diffPositive}>Diferença: {diff.toFixed(1)} h — coleta necessária</Text>
               <Text style={styles.label}>Método de coleta</Text>
