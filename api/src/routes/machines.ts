@@ -6,6 +6,32 @@ const router = Router();
 
 router.use(authMiddleware);
 
+router.get('/search', async (req: Request, res: Response): Promise<void> => {
+  const term = ((req.query.pin as string | undefined) ?? '').trim();
+
+  if (term.length < 2) {
+    res.json([]);
+    return;
+  }
+
+  const rows = await query(
+    `SELECT m.id, m.pin, m.custom_name, m.is_john_deere,
+            m.days_offline, m.last_call_date, m.machine_hours,
+            m.last_known_lat, m.last_known_lng, m.org_id,
+            o.name AS org_name
+     FROM machines m
+     LEFT JOIN organizations o ON o.id = m.org_id
+     WHERE m.pin ILIKE $1
+        OR m.custom_name ILIKE $1
+        OR o.name ILIKE $1
+     ORDER BY m.days_offline DESC NULLS LAST
+     LIMIT 30`,
+    [`%${term}%`]
+  );
+
+  res.json(rows);
+});
+
 router.get('/:pin', async (req: Request, res: Response): Promise<void> => {
   const machine = await queryOne(
     `SELECT m.*, o.name AS org_name

@@ -1,6 +1,6 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Organization, Machine, Activity, Technician, NearbyOrg } from '../types';
+import { Organization, Machine, Activity, Technician, NearbyOrg, MachineSearchResult } from '../types';
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3001';
 
@@ -103,6 +103,12 @@ export async function createNoUseActivity(data: {
   synced_offline?: boolean;
 }): Promise<Activity> {
   const res = await api.post<Activity>('/activities/no-use-direct', data);
+  return res.data;
+}
+
+// Machine search by PIN / chassis / org name
+export async function searchMachines(pin: string): Promise<MachineSearchResult[]> {
+  const res = await api.get<MachineSearchResult[]>('/machines/search', { params: { pin } });
   return res.data;
 }
 

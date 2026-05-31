@@ -20,9 +20,9 @@ const JD_GREEN = '#367C2B';
 export default function NonJDMachineScreen() {
   const navigation = useNavigation<Nav>();
   const route = useRoute<Route>();
-  const { org } = route.params;
+  const { org, prefillPin } = route.params;
 
-  const [customName, setCustomName] = useState('');
+  const [customName, setCustomName] = useState(prefillPin ?? '');
   const [brand, setBrand] = useState('');
   const [model, setModel] = useState('');
   const [description, setDescription] = useState('');

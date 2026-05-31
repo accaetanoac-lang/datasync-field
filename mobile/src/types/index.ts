@@ -82,6 +82,10 @@ export interface NearbyOrg {
   pending_machines: NearbyPendingMachine[];
 }
 
+export interface MachineSearchResult extends Machine {
+  org_name: string;
+}
+
 export interface OrgCache {
   data: Organization[];
   timestamp: number;

@@ -25,7 +25,7 @@ export type RootStackParamList = {
     method: 'starlink_data_sync' | 'pen_drive';
     startedAt: string;
   };
-  NonJDMachine: { org?: Organization };
+  NonJDMachine: { org?: Organization; prefillPin?: string };
 };
 
 const Stack = createStackNavigator<RootStackParamList>();

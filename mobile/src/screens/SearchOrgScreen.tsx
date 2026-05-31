@@ -6,14 +6,15 @@ import {
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
-import { searchOrgs, sendGeofence } from '../services/api';
+import { searchOrgs, sendGeofence, searchMachines } from '../services/api';
 import { getCachedOrgs, setCachedOrgs } from '../services/sync';
 import { getCurrentLocation } from '../services/geolocation';
 import { useAuth } from '../context/AuthContext';
-import { Organization, NearbyOrg } from '../types';
+import { Organization, NearbyOrg, MachineSearchResult } from '../types';
 import { RootStackParamList } from '../navigation/AppNavigator';
 
 type Nav = StackNavigationProp<RootStackParamList, 'SearchOrg'>;
+type SearchMode = 'org' | 'pin';
 
 const JD_GREEN = '#367C2B';
 const GEOFENCE_INTERVAL_MS = 5 * 60 * 1000;
@@ -23,12 +24,21 @@ export default function SearchOrgScreen() {
   const { clearAuth } = useAuth();
   const inputRef = useRef<TextInput>(null);
 
+  // Org search state
+  const [mode, setMode] = useState<SearchMode>('org');
   const [query, setQuery] = useState('');
   const [allOrgs, setAllOrgs] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(false);
   const [showList, setShowList] = useState(false);
 
-  // Geofence alert state
+  // PIN search state
+  const [pinQuery, setPinQuery] = useState('');
+  const [pinResults, setPinResults] = useState<MachineSearchResult[]>([]);
+  const [pinLoading, setPinLoading] = useState(false);
+  const [pinSearched, setPinSearched] = useState(false);
+  const pinDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Geofence state
   const [nearbyOrgs, setNearbyOrgs] = useState<NearbyOrg[]>([]);
   const [showGeofenceModal, setShowGeofenceModal] = useState(false);
   const dismissedOrgIds = useRef<Set<number>>(new Set());
@@ -89,11 +99,61 @@ export default function SearchOrgScreen() {
     }, [loadAll, checkGeofence])
   );
 
-  const handleSelect = (org: Organization) => {
+  const handleModeChange = (newMode: SearchMode) => {
+    setMode(newMode);
+    if (newMode === 'pin') {
+      setShowList(false);
+      setQuery('');
+    } else {
+      if (pinDebounceRef.current) clearTimeout(pinDebounceRef.current);
+      setPinQuery('');
+      setPinResults([]);
+      setPinSearched(false);
+    }
+  };
+
+  // Org mode handlers
+  const handleSelectOrg = (org: Organization) => {
     setShowList(false);
     navigation.navigate('MachineList', { org });
   };
 
+  // PIN mode handlers
+  const handlePinChange = (text: string) => {
+    setPinQuery(text);
+    if (pinDebounceRef.current) clearTimeout(pinDebounceRef.current);
+
+    if (text.trim().length < 4) {
+      setPinResults([]);
+      setPinSearched(false);
+      return;
+    }
+
+    pinDebounceRef.current = setTimeout(async () => {
+      setPinLoading(true);
+      try {
+        const results = await searchMachines(text.trim());
+        setPinResults(results);
+        setPinSearched(true);
+      } catch {
+        setPinResults([]);
+        setPinSearched(true);
+      } finally {
+        setPinLoading(false);
+      }
+    }, 400);
+  };
+
+  const handlePinSelect = (item: MachineSearchResult) => {
+    const org: Organization = {
+      id: item.org_id,
+      org_id_jd: '',
+      name: item.org_name,
+    };
+    navigation.navigate('MachineDetail', { machine: item, org });
+  };
+
+  // Geofence modal handlers
   const handleViewMachines = (nearby: NearbyOrg) => {
     dismissedOrgIds.current.add(nearby.org_id);
     setShowGeofenceModal(false);
@@ -111,58 +171,159 @@ export default function SearchOrgScreen() {
     setShowGeofenceModal(false);
   };
 
+  const renderMachineCard = ({ item }: { item: MachineSearchResult }) => {
+    const displayId = item.pin ?? item.custom_name ?? 'Sem identificação';
+    const lastConn = item.last_call_date
+      ? new Date(item.last_call_date).toLocaleDateString('pt-BR')
+      : 'Sem data';
+    const hours = item.machine_hours != null ? `${item.machine_hours} h` : 'N/A';
+    const isRed = item.days_offline != null && item.days_offline > 60;
+
+    return (
+      <TouchableOpacity
+        style={styles.machineCard}
+        onPress={() => handlePinSelect(item)}
+        activeOpacity={0.7}
+      >
+        <View style={styles.machineCardTop}>
+          <Text style={styles.machinePin} numberOfLines={1}>{displayId}</Text>
+          {item.days_offline != null && (
+            <View style={[styles.offlineBadge, isRed ? styles.badgeRed : styles.badgeYellow]}>
+              <Text style={styles.offlineBadgeText}>{item.days_offline}d</Text>
+            </View>
+          )}
+        </View>
+        <Text style={styles.machineOrg} numberOfLines={1}>{item.org_name}</Text>
+        <Text style={styles.machineMeta}>
+          Última conexão: {lastConn}{'  ·  '}{hours}
+        </Text>
+      </TouchableOpacity>
+    );
+  };
+
   return (
     <View style={styles.container}>
-      <TextInput
-        ref={inputRef}
-        style={[styles.searchInput, showList && styles.searchInputActive]}
-        value={query}
-        onChangeText={setQuery}
-        onFocus={() => setShowList(true)}
-        placeholder="Buscar organização..."
-        placeholderTextColor="#aaa"
-        autoCorrect={false}
-        autoCapitalize="none"
-        autoFocus={false}
-      />
+      {/* Mode toggle */}
+      <View style={styles.toggle}>
+        <TouchableOpacity
+          style={[styles.toggleBtn, mode === 'org' && styles.toggleBtnActive]}
+          onPress={() => handleModeChange('org')}
+        >
+          <Text style={[styles.toggleText, mode === 'org' && styles.toggleTextActive]}>
+            🏢 Organização
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.toggleBtn, mode === 'pin' && styles.toggleBtnActive]}
+          onPress={() => handleModeChange('pin')}
+        >
+          <Text style={[styles.toggleText, mode === 'pin' && styles.toggleTextActive]}>
+            🔧 PIN / Chassi
+          </Text>
+        </TouchableOpacity>
+      </View>
 
-      {loading && (
-        <ActivityIndicator color={JD_GREEN} style={{ marginVertical: 8 }} />
+      {/* ── Org search mode ── */}
+      {mode === 'org' && (
+        <>
+          <TextInput
+            ref={inputRef}
+            style={[styles.searchInput, showList && styles.searchInputActive]}
+            value={query}
+            onChangeText={setQuery}
+            onFocus={() => setShowList(true)}
+            placeholder="Buscar organização..."
+            placeholderTextColor="#aaa"
+            autoCorrect={false}
+            autoCapitalize="none"
+            autoFocus={false}
+          />
+
+          {loading && (
+            <ActivityIndicator color={JD_GREEN} style={{ marginVertical: 8 }} />
+          )}
+
+          {showList && !loading && (
+            <>
+              <View
+                style={styles.backdrop}
+                onTouchStart={() => setShowList(false)}
+              />
+              <FlatList
+                style={styles.list}
+                data={filtered}
+                keyExtractor={(item) => String(item.id)}
+                keyboardShouldPersistTaps="handled"
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={styles.orgCard}
+                    onPress={() => handleSelectOrg(item)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.orgName} numberOfLines={1}>{item.name}</Text>
+                    <View style={styles.badge}>
+                      <Text style={styles.badgeText}>
+                        {item.offline_machine_count ?? 0} offline
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                )}
+                ListEmptyComponent={
+                  <Text style={styles.empty}>
+                    {query.length > 0
+                      ? 'Nenhuma organização encontrada.'
+                      : 'Nenhuma organização com máquinas offline.'}
+                  </Text>
+                }
+              />
+            </>
+          )}
+        </>
       )}
 
-      {showList && !loading && (
+      {/* ── PIN / Chassi search mode ── */}
+      {mode === 'pin' && (
         <>
-          <View
-            style={styles.backdrop}
-            onTouchStart={() => setShowList(false)}
+          <TextInput
+            style={[styles.searchInput, pinQuery.length > 0 && styles.searchInputActive]}
+            value={pinQuery}
+            onChangeText={handlePinChange}
+            placeholder="Digite o PIN ou chassi da máquina"
+            placeholderTextColor="#aaa"
+            autoCorrect={false}
+            autoCapitalize="characters"
+            autoFocus={false}
           />
-          <FlatList
-            style={styles.list}
-            data={filtered}
-            keyExtractor={(item) => String(item.id)}
-            keyboardShouldPersistTaps="handled"
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                style={styles.orgCard}
-                onPress={() => handleSelect(item)}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.orgName} numberOfLines={1}>{item.name}</Text>
-                <View style={styles.badge}>
-                  <Text style={styles.badgeText}>
-                    {item.offline_machine_count ?? 0} offline
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            )}
-            ListEmptyComponent={
-              <Text style={styles.empty}>
-                {query.length > 0
-                  ? 'Nenhuma organização encontrada.'
-                  : 'Nenhuma organização com máquinas offline.'}
+
+          {pinLoading && (
+            <ActivityIndicator color={JD_GREEN} style={{ marginVertical: 8 }} />
+          )}
+
+          {pinSearched && !pinLoading && pinResults.length > 0 && (
+            <FlatList
+              style={styles.pinList}
+              data={pinResults}
+              keyExtractor={(item) => String(item.id)}
+              keyboardShouldPersistTaps="handled"
+              renderItem={renderMachineCard}
+              contentContainerStyle={{ paddingBottom: 4 }}
+            />
+          )}
+
+          {pinSearched && !pinLoading && pinResults.length === 0 && (
+            <View style={styles.pinEmpty}>
+              <Text style={styles.pinEmptyTitle}>Máquina não encontrada</Text>
+              <Text style={styles.pinEmptyText}>
+                Nenhum resultado para "{pinQuery}"
               </Text>
-            }
-          />
+              <TouchableOpacity
+                style={styles.nonJDFromPinButton}
+                onPress={() => navigation.navigate('NonJDMachine', { prefillPin: pinQuery })}
+              >
+                <Text style={styles.nonJDFromPinText}>+ Cadastrar como máquina não-JD</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </>
       )}
 
@@ -232,6 +393,32 @@ export default function SearchOrgScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f5f5', padding: 16 },
 
+  // Mode toggle
+  toggle: {
+    flexDirection: 'row',
+    backgroundColor: '#e5e7eb',
+    borderRadius: 10,
+    padding: 3,
+    marginBottom: 12,
+  },
+  toggleBtn: {
+    flex: 1,
+    paddingVertical: 9,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  toggleBtnActive: {
+    backgroundColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  toggleText: { fontSize: 14, fontWeight: '600', color: '#6b7280' },
+  toggleTextActive: { color: JD_GREEN },
+
+  // Shared search input
   searchInput: {
     height: 48,
     backgroundColor: '#fff',
@@ -249,12 +436,12 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 0,
   },
 
+  // Org dropdown
   backdrop: {
     position: 'absolute',
     top: 0, left: 0, right: 0, bottom: 0,
     zIndex: 10,
   },
-
   list: {
     zIndex: 20,
     backgroundColor: '#fff',
@@ -270,7 +457,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.12,
     shadowRadius: 6,
   },
-
   orgCard: {
     paddingHorizontal: 16,
     paddingVertical: 14,
@@ -292,6 +478,59 @@ const styles = StyleSheet.create({
   badgeText: { color: '#fff', fontSize: 12, fontWeight: '700' },
   empty: { textAlign: 'center', color: '#888', padding: 24, fontSize: 14 },
 
+  // PIN search results
+  pinList: {
+    marginTop: 4,
+    maxHeight: 420,
+  },
+  machineCard: {
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    padding: 14,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 2,
+  },
+  machineCardTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  machinePin: { fontSize: 16, fontWeight: '700', color: '#1a1a1a', flex: 1, marginRight: 8 },
+  offlineBadge: {
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  badgeYellow: { backgroundColor: '#fef3c7' },
+  badgeRed: { backgroundColor: '#fee2e2' },
+  offlineBadgeText: { fontSize: 12, fontWeight: '700', color: '#1a1a1a' },
+  machineOrg: { fontSize: 13, color: JD_GREEN, fontWeight: '600', marginBottom: 4 },
+  machineMeta: { fontSize: 12, color: '#888' },
+
+  // PIN empty state
+  pinEmpty: {
+    marginTop: 24,
+    alignItems: 'center',
+    paddingHorizontal: 16,
+  },
+  pinEmptyTitle: { fontSize: 16, fontWeight: '700', color: '#1a1a1a', marginBottom: 6 },
+  pinEmptyText: { fontSize: 14, color: '#888', textAlign: 'center', marginBottom: 20 },
+  nonJDFromPinButton: {
+    backgroundColor: '#1a1a1a',
+    borderRadius: 8,
+    paddingVertical: 13,
+    paddingHorizontal: 24,
+  },
+  nonJDFromPinText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+
+  // Bottom buttons
   nonJDButton: {
     backgroundColor: '#1a1a1a',
     borderRadius: 8,
@@ -303,7 +542,7 @@ const styles = StyleSheet.create({
   logoutButton: { padding: 14, alignItems: 'center' },
   logoutText: { color: '#888', fontSize: 14 },
 
-  // Modal styles
+  // Geofence modal
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.55)',
