@@ -1,7 +1,8 @@
 import React, { useEffect } from 'react';
 import { NavigationContainer, useNavigationContainerRef } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
-import { ActivityIndicator, View } from 'react-native';
+import { Alert, ActivityIndicator, View } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import { useAuth } from '../context/AuthContext';
 import { getOrg } from '../services/api';
@@ -9,9 +10,17 @@ import LoginScreen from '../screens/LoginScreen';
 import SearchOrgScreen from '../screens/SearchOrgScreen';
 import MachineListScreen from '../screens/MachineListScreen';
 import MachineDetailScreen from '../screens/MachineDetailScreen';
-import ActivityScreen from '../screens/ActivityScreen';
+import ActivityScreen, { ACTIVE_ACTIVITY_KEY } from '../screens/ActivityScreen';
 import NonJDMachineScreen from '../screens/NonJDMachineScreen';
 import { Organization, Machine } from '../types';
+
+type SavedActivity = {
+  activityId: number;
+  startedAt: string;
+  machine: Machine;
+  org: Organization;
+  method: 'starlink_data_sync' | 'pen_drive';
+};
 
 export type RootStackParamList = {
   Login: undefined;
@@ -58,6 +67,58 @@ export default function AppNavigator() {
 
     return () => subscription.remove();
   }, []);
+
+  // After login: if the technician force-closed the app mid-activity, offer to resume
+  useEffect(() => {
+    if (loading || !isAuthenticated) return;
+
+    let cancelled = false;
+
+    async function checkActiveActivity() {
+      try {
+        const raw = await AsyncStorage.getItem(ACTIVE_ACTIVITY_KEY);
+        if (!raw || cancelled) return;
+
+        const saved: SavedActivity = JSON.parse(raw);
+        if (!saved.activityId || !saved.startedAt) return;
+
+        const machineName = saved.machine.pin ?? saved.machine.custom_name ?? '—';
+
+        // Small delay so the navigation container is fully mounted
+        setTimeout(() => {
+          if (cancelled || !navigationRef.isReady()) return;
+          Alert.alert(
+            'Atividade em andamento',
+            `Você tem uma coleta ativa em ${machineName} (${saved.org.name}). Deseja retornar?`,
+            [
+              {
+                text: 'Descartar',
+                style: 'destructive',
+                onPress: () => AsyncStorage.removeItem(ACTIVE_ACTIVITY_KEY).catch(() => {}),
+              },
+              {
+                text: 'Retornar',
+                onPress: () =>
+                  navigationRef.navigate('Activity', {
+                    activityId: saved.activityId,
+                    startedAt: saved.startedAt,
+                    machine: saved.machine,
+                    org: saved.org,
+                    method: saved.method,
+                  }),
+              },
+            ],
+            { cancelable: false },
+          );
+        }, 600);
+      } catch {
+        // Ignore malformed AsyncStorage data
+      }
+    }
+
+    checkActiveActivity();
+    return () => { cancelled = true; };
+  }, [isAuthenticated, loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading) {
     return (

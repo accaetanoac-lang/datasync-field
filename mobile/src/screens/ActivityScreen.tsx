@@ -2,7 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
   Alert, ActivityIndicator, Image, ScrollView,
+  AppState, AppStateStatus,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import * as ImagePicker from 'expo-image-picker';
@@ -13,6 +15,8 @@ import { RootStackParamList } from '../navigation/AppNavigator';
 
 type Nav = StackNavigationProp<RootStackParamList, 'Activity'>;
 type Route = RouteProp<RootStackParamList, 'Activity'>;
+
+export const ACTIVE_ACTIVITY_KEY = 'active_activity';
 
 const JD_GREEN = '#367C2B';
 const JD_YELLOW = '#FFDE00';
@@ -33,20 +37,43 @@ export default function ActivityScreen() {
   const route = useRoute<Route>();
   const { machine, org, activityId, method, startedAt } = route.params;
 
-  const [elapsed, setElapsed] = useState(0);
-  const [notes, setNotes] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [done, setDone] = useState(false);
-  const [photoUri, setPhotoUri] = useState<string | null>(null);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Wall-clock start time — never mutated, so elapsed is always accurate
+  // even after the JS thread was paused in the background.
+  const startTimestamp = useRef<number>(Date.parse(startedAt));
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const [elapsed, setElapsed]           = useState(0);
+  const [finalElapsed, setFinalElapsed] = useState(0); // captured at the moment of finish
+  const [notes, setNotes]               = useState('');
+  const [loading, setLoading]           = useState(false);
+  const [done, setDone]                 = useState(false);
+  const [photoUri, setPhotoUri]         = useState<string | null>(null);
+
+  function calcElapsed(): number {
+    return Math.max(0, Math.floor((Date.now() - startTimestamp.current) / 1000));
+  }
 
   useEffect(() => {
-    const initialElapsed = Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000);
-    setElapsed(Math.max(0, initialElapsed));
+    // Persist so AppNavigator can offer to resume after a force-close
+    AsyncStorage.setItem(ACTIVE_ACTIVITY_KEY, JSON.stringify({
+      activityId, startedAt, machine, org, method,
+    })).catch(() => {});
 
-    timerRef.current = setInterval(() => setElapsed((e) => e + 1), 1000);
-    return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [startedAt]);
+    // Seed immediately, then tick every second
+    setElapsed(calcElapsed());
+    intervalRef.current = setInterval(() => setElapsed(calcElapsed()), 1000);
+
+    // When the app returns from background the interval may have drifted;
+    // snap back to the real elapsed time instantly.
+    const appStateSub = AppState.addEventListener('change', (state: AppStateStatus) => {
+      if (state === 'active') setElapsed(calcElapsed());
+    });
+
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      appStateSub.remove();
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const takePhoto = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
@@ -72,7 +99,11 @@ export default function ActivityScreen() {
       return;
     }
 
-    if (timerRef.current) clearInterval(timerRef.current);
+    if (intervalRef.current) clearInterval(intervalRef.current);
+
+    // Capture the true duration before async work starts
+    const captured = calcElapsed();
+    setFinalElapsed(captured);
     setLoading(true);
 
     const net = await NetInfo.fetch();
@@ -94,6 +125,7 @@ export default function ActivityScreen() {
 
         // Always finish the activity regardless of photo result
         await finishActivity(activityId, notes || undefined);
+        await AsyncStorage.removeItem(ACTIVE_ACTIVITY_KEY);
 
         setDone(true);
         if (!photoUploaded) {
@@ -117,16 +149,18 @@ export default function ActivityScreen() {
           status: 'completed',
           started_at: startedAt,
           finished_at: new Date().toISOString(),
-          duration_minutes: Math.round(elapsed / 60),
+          duration_minutes: Math.round(captured / 60),
           synced_offline: true,
         });
+        await AsyncStorage.removeItem(ACTIVE_ACTIVITY_KEY);
         setDone(true);
         setTimeout(() => navigation.navigate('MachineList', { org }), 1500);
       }
     } catch (err) {
       console.error('Finish activity error:', err);
       Alert.alert('Erro', 'Não foi possível finalizar a atividade. Verifique sua conexão.');
-      timerRef.current = setInterval(() => setElapsed((e) => e + 1), 1000);
+      // Restart the live timer; it will self-correct from the timestamp
+      intervalRef.current = setInterval(() => setElapsed(calcElapsed()), 1000);
     } finally {
       setLoading(false);
     }
@@ -137,7 +171,7 @@ export default function ActivityScreen() {
       <View style={styles.center}>
         <Text style={styles.doneIcon}>✓</Text>
         <Text style={styles.doneText}>Atividade concluída!</Text>
-        <Text style={styles.doneSub}>Duração: {formatElapsed(elapsed)}</Text>
+        <Text style={styles.doneSub}>Duração: {formatElapsed(finalElapsed)}</Text>
       </View>
     );
   }
