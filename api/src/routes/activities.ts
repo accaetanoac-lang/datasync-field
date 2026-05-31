@@ -132,12 +132,13 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
 router.post('/:id/photo', (req: Request, res: Response, next: NextFunction): void => {
   photoUpload(req, res, (err) => {
     if (err) {
+      console.error('Photo upload multer error:', err);
       res.status(400).json({ error: err instanceof Error ? err.message : 'Upload error' });
       return;
     }
     next();
   });
-}, async (req: Request, res: Response): Promise<void> => {
+}, async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   const activityId = parseInt(req.params.id, 10);
 
   if (!req.file) {
@@ -154,26 +155,31 @@ router.post('/:id/photo', (req: Request, res: Response, next: NextFunction): voi
     return;
   }
 
-  const s3 = new AWS.S3({ region: process.env.AWS_REGION ?? 'us-east-1' });
-  const timestamp = Date.now();
-  const key = `activities/${activityId}/panel_${timestamp}.jpg`;
-  const bucket = 'datasync-field-uploads-496795891165';
+  try {
+    const s3 = new AWS.S3({ region: process.env.AWS_REGION ?? 'us-east-1' });
+    const timestamp = Date.now();
+    const key = `activities/${activityId}/panel_${timestamp}.jpg`;
+    const bucket = 'datasync-field-uploads-496795891165';
 
-  await s3.putObject({
-    Bucket: bucket,
-    Key: key,
-    Body: req.file.buffer,
-    ContentType: req.file.mimetype,
-  }).promise();
+    await s3.putObject({
+      Bucket: bucket,
+      Key: key,
+      Body: req.file.buffer,
+      ContentType: 'image/jpeg',
+    }).promise();
 
-  const photoUrl = `https://${bucket}.s3.amazonaws.com/${key}`;
+    const photoUrl = `https://${bucket}.s3.amazonaws.com/${key}`;
 
-  await queryOne(
-    `UPDATE activities SET photo_url = $1, photo_taken_at = NOW() WHERE id = $2 RETURNING id`,
-    [photoUrl, activityId]
-  );
+    await queryOne(
+      `UPDATE activities SET photo_url = $1, photo_taken_at = NOW() WHERE id = $2 RETURNING id`,
+      [photoUrl, activityId]
+    );
 
-  res.json({ photo_url: photoUrl });
+    res.json({ photo_url: photoUrl });
+  } catch (error) {
+    console.error('Photo upload error:', error);
+    next(error);
+  }
 });
 
 router.put('/:id/finish', async (req: Request, res: Response): Promise<void> => {

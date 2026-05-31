@@ -90,17 +90,37 @@ export async function finishActivity(id: number, notes?: string): Promise<Activi
 }
 
 export async function uploadActivityPhoto(id: number, photoUri: string): Promise<{ photo_url: string }> {
+  const token = await AsyncStorage.getItem('auth_token');
+
   const formData = new FormData();
+  // React Native FormData requires this object shape; type cast is intentional
   formData.append('photo', {
     uri: photoUri,
     name: `panel_${id}_${Date.now()}.jpg`,
     type: 'image/jpeg',
   } as unknown as Blob);
 
-  const res = await api.post<{ photo_url: string }>(`/activities/${id}/photo`, formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  });
-  return res.data;
+  // Use fetch directly so React Native sets Content-Type + boundary automatically.
+  // axios with a manual 'multipart/form-data' header omits the boundary, breaking multer.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30_000);
+  try {
+    const response = await fetch(`${BASE_URL}/activities/${id}/photo`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token ?? ''}` },
+      body: formData,
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error((body as { error?: string }).error ?? `Upload failed: ${response.status}`);
+    }
+
+    return (await response.json()) as { photo_url: string };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export async function markNoUse(id: number): Promise<Activity> {

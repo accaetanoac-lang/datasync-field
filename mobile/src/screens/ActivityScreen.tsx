@@ -80,8 +80,33 @@ export default function ActivityScreen() {
 
     try {
       if (isOnline && activityId > 0) {
-        await uploadActivityPhoto(activityId, photoUri);
+        // --- Photo upload (2 attempts, non-blocking) ---
+        let photoUploaded = false;
+        for (let attempt = 1; attempt <= 2; attempt++) {
+          try {
+            await uploadActivityPhoto(activityId, photoUri);
+            photoUploaded = true;
+            break;
+          } catch (photoErr) {
+            console.error(`Photo upload attempt ${attempt} failed:`, photoErr);
+          }
+        }
+
+        // Always finish the activity regardless of photo result
         await finishActivity(activityId, notes || undefined);
+
+        setDone(true);
+        if (!photoUploaded) {
+          setTimeout(() => {
+            Alert.alert(
+              'Atividade concluída',
+              'Foto não enviada — verifique sua conexão e tente novamente pelo painel.',
+              [{ text: 'OK', onPress: () => navigation.navigate('MachineList', { org }) }],
+            );
+          }, 400);
+        } else {
+          setTimeout(() => navigation.navigate('MachineList', { org }), 1500);
+        }
       } else {
         await queueActivity({
           tempId: String(Date.now()),
@@ -95,13 +120,12 @@ export default function ActivityScreen() {
           duration_minutes: Math.round(elapsed / 60),
           synced_offline: true,
         });
+        setDone(true);
+        setTimeout(() => navigation.navigate('MachineList', { org }), 1500);
       }
-
-      setDone(true);
-      setTimeout(() => navigation.navigate('MachineList', { org }), 1500);
-    } catch {
-      Alert.alert('Erro', 'Não foi possível finalizar a atividade.');
-      if (timerRef.current) clearInterval(timerRef.current);
+    } catch (err) {
+      console.error('Finish activity error:', err);
+      Alert.alert('Erro', 'Não foi possível finalizar a atividade. Verifique sua conexão.');
       timerRef.current = setInterval(() => setElapsed((e) => e + 1), 1000);
     } finally {
       setLoading(false);
