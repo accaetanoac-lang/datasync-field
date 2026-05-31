@@ -5,8 +5,7 @@ import {
 } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
-import { AxiosError } from 'axios';
-import { startActivity, createNoUseActivity } from '../services/api';
+import { createNoUseActivity } from '../services/api';
 import { queueActivity } from '../services/sync';
 import { getCurrentLocation } from '../services/geolocation';
 import { RootStackParamList } from '../navigation/AppNavigator';
@@ -15,8 +14,6 @@ import NetInfo from '@react-native-community/netinfo';
 
 type Nav = StackNavigationProp<RootStackParamList, 'MachineDetail'>;
 type Route = RouteProp<RootStackParamList, 'MachineDetail'>;
-
-type Method = 'starlink_data_sync' | 'pen_drive';
 
 const JD_GREEN = '#367C2B';
 
@@ -28,14 +25,11 @@ export default function MachineDetailScreen() {
   const [currentHours, setCurrentHours] = useState('');
   const [hoursError, setHoursError] = useState<string | null>(null);
   const [diff, setDiff] = useState<number | null>(null);
-  const [method, setMethod] = useState<Method | null>(null);
   const [loading, setLoading] = useState(false);
   const [noUseConfirmed, setNoUseConfirmed] = useState(false);
-  const [conflictError, setConflictError] = useState<string | null>(null);
 
   // PostgreSQL NUMERIC columns arrive as strings — force to number upfront
   const lastHours = Number(machine.machine_hours ?? 0);
-  const daysOffline = Number(machine.days_offline ?? 0);
 
   const handleHoursChange = (text: string) => {
     setCurrentHours(text);
@@ -65,13 +59,8 @@ export default function MachineDetailScreen() {
     setHoursError(null);
     const hoursDiff = val - lastHours;
 
-    console.log('[MachineDetail] days_offline:', machine.days_offline, typeof machine.days_offline, '→', daysOffline);
-    console.log('[MachineDetail] hoursDiff:', hoursDiff, typeof hoursDiff);
-    console.log('[MachineDetail] diagnosis condition (>=90d && <=10h):', daysOffline >= 90 && hoursDiff <= 10);
-
-    // Connectivity diagnosis: long offline + small hour delta = modem failure, not no-use
-    if (daysOffline >= 90 && hoursDiff <= 10) {
-      navigation.navigate('Diagnosis', { machine, org, hoursDiff });
+    if (hoursDiff >= 50) {
+      navigation.navigate('Diagnosis', { machine, org, currentHours: val, hoursDiff });
       return;
     }
 
@@ -112,74 +101,6 @@ export default function MachineDetailScreen() {
       setTimeout(() => navigation.goBack(), 1500);
     } catch (err) {
       Alert.alert('Erro', 'Não foi possível registrar.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleStartActivity = async () => {
-    if (!method) {
-      Alert.alert('Selecione o método', 'Escolha Starlink + Data Sync ou Pen Drive.');
-      return;
-    }
-
-    setLoading(true);
-    const coords = await getCurrentLocation();
-    const net = await NetInfo.fetch();
-    const isOnline = net.isConnected && net.isInternetReachable !== false;
-
-    try {
-      if (isOnline) {
-        const activity = await startActivity({
-          org_id: org.id,
-          machine_id: machine.id,
-          method,
-          current_hours: parseFloat(currentHours),
-          tech_lat: coords?.latitude,
-          tech_lng: coords?.longitude,
-        });
-
-        navigation.navigate('Activity', {
-          machine,
-          org,
-          activityId: activity.id,
-          method,
-          startedAt: activity.started_at ?? new Date().toISOString(),
-        });
-      } else {
-        const tempId = String(Date.now());
-        await queueActivity({
-          tempId,
-          org_id: org.id,
-          machine_id: machine.id,
-          method,
-          current_hours: parseFloat(currentHours),
-          tech_lat: coords?.latitude,
-          tech_lng: coords?.longitude,
-          status: 'in_progress',
-          started_at: new Date().toISOString(),
-          synced_offline: true,
-        });
-
-        // Navigate to activity screen in offline mode
-        navigation.navigate('Activity', {
-          machine,
-          org,
-          activityId: -1, // Offline marker
-          method,
-          startedAt: new Date().toISOString(),
-        });
-      }
-    } catch (err: unknown) {
-      if (err instanceof AxiosError && err.response?.status === 409) {
-        const data = err.response.data as { error: string; technician?: string };
-        setConflictError(
-          data.technician ? `Em coleta por: ${data.technician}` : 'Esta máquina já foi coletada'
-        );
-      } else {
-        const msg = err instanceof Error ? err.message : 'Erro ao iniciar atividade.';
-        Alert.alert('Erro', msg);
-      }
     } finally {
       setLoading(false);
     }
@@ -242,82 +163,26 @@ export default function MachineDetailScreen() {
       {/* Result based on diff */}
       {diff !== null && (
         <View style={styles.diffSection}>
-          {diff === 0 ? (
-            <>
-              <View style={styles.noUseWarning}>
-                <Text style={styles.noUseTitle}>Máquina sem uso</Text>
-                <Text style={styles.noUseSubtitle}>
-                  Horímetro idêntico ao da última conexão ({lastHours} h).
-                </Text>
-              </View>
-              <TouchableOpacity
-                style={styles.noUseButton}
-                onPress={handleNoUse}
-                disabled={loading}
-              >
-                {loading
-                  ? <ActivityIndicator color="#fff" />
-                  : <Text style={styles.noUseButtonText}>Confirmar e Encerrar</Text>}
-              </TouchableOpacity>
-            </>
-          ) : diff < 50 ? (
-            <>
-              <View style={styles.noUseWarning}>
-                <Text style={styles.noUseTitle}>Máquina sem uso após última subida de dados</Text>
-                <Text style={styles.noUseSubtitle}>
-                  Diferença de {diff.toFixed(1)} horas — abaixo de 50 h.
-                </Text>
-              </View>
-              <TouchableOpacity
-                style={styles.noUseButton}
-                onPress={handleNoUse}
-                disabled={loading}
-              >
-                {loading
-                  ? <ActivityIndicator color="#fff" />
-                  : <Text style={styles.noUseButtonText}>Confirmar e Encerrar</Text>}
-              </TouchableOpacity>
-            </>
-          ) : (
-            /* diff >= 50 — activity flow */
-            <>
-              <Text style={styles.diffPositive}>
-                Diferença: {diff.toFixed(1)} h — coleta necessária
-              </Text>
-
-              {/* Method selector */}
-              <Text style={styles.label}>Método de coleta</Text>
-              <View style={styles.methodRow}>
-                {(['starlink_data_sync', 'pen_drive'] as Method[]).map((m) => (
-                  <TouchableOpacity
-                    key={m}
-                    style={[styles.methodBtn, method === m && styles.methodBtnActive]}
-                    onPress={() => setMethod(m)}
-                  >
-                    <Text style={[styles.methodBtnText, method === m && styles.methodBtnTextActive]}>
-                      {m === 'starlink_data_sync' ? 'Starlink + Data Sync' : 'Pen Drive'}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              {conflictError && (
-                <View style={styles.conflictBanner}>
-                  <Text style={styles.conflictText}>{conflictError}</Text>
-                </View>
-              )}
-
-              <TouchableOpacity
-                style={[styles.startButton, (!method || !!conflictError) && styles.startButtonDisabled]}
-                onPress={handleStartActivity}
-                disabled={!method || loading || !!conflictError}
-              >
-                {loading
-                  ? <ActivityIndicator color="#fff" />
-                  : <Text style={styles.startButtonText}>Iniciar Atividade</Text>}
-              </TouchableOpacity>
-            </>
-          )}
+          {/* diff is always < 50 here — diff >= 50 navigates to Diagnosis */}
+          <View style={styles.noUseWarning}>
+            <Text style={styles.noUseTitle}>
+              {diff === 0 ? 'Máquina sem uso' : 'Máquina sem uso após última subida de dados'}
+            </Text>
+            <Text style={styles.noUseSubtitle}>
+              {diff === 0
+                ? `Horímetro idêntico ao da última conexão (${lastHours} h).`
+                : `Diferença de ${diff.toFixed(1)} horas — abaixo de 50 h.`}
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={styles.noUseButton}
+            onPress={handleNoUse}
+            disabled={loading}
+          >
+            {loading
+              ? <ActivityIndicator color="#fff" />
+              : <Text style={styles.noUseButtonText}>Confirmar e Encerrar</Text>}
+          </TouchableOpacity>
         </View>
       )}
     </ScrollView>
@@ -397,35 +262,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   noUseButtonText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-  diffPositive: { color: JD_GREEN, fontWeight: '600', fontSize: 15 },
-  methodRow: { flexDirection: 'row', gap: 8 },
-  methodBtn: {
-    flex: 1,
-    borderWidth: 2,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    padding: 12,
-    alignItems: 'center',
-  },
-  methodBtnActive: { borderColor: JD_GREEN, backgroundColor: '#f0fdf4' },
-  methodBtnText: { color: '#555', fontWeight: '600', fontSize: 13, textAlign: 'center' },
-  methodBtnTextActive: { color: JD_GREEN },
-  conflictBanner: {
-    backgroundColor: '#FEE2E2',
-    borderRadius: 8,
-    padding: 14,
-    borderLeftWidth: 4,
-    borderLeftColor: '#EF4444',
-  },
-  conflictText: { color: '#991B1B', fontWeight: '600', fontSize: 14 },
-  startButton: {
-    backgroundColor: JD_GREEN,
-    borderRadius: 8,
-    padding: 16,
-    alignItems: 'center',
-  },
-  startButtonDisabled: { backgroundColor: '#a8c5a0' },
-  startButtonText: { color: '#fff', fontWeight: '700', fontSize: 16 },
   successIcon: { fontSize: 64, color: JD_GREEN },
   successText: { fontSize: 18, color: JD_GREEN, fontWeight: '600', marginTop: 16 },
 });

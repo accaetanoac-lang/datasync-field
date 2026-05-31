@@ -38,7 +38,8 @@ export type RootStackParamList = {
   Diagnosis: {
     machine: Machine;
     org: Organization;
-    hoursDiff?: number;
+    currentHours: number;
+    hoursDiff: number;
   };
   NonJDMachine: { org?: Organization; prefillPin?: string };
 };
