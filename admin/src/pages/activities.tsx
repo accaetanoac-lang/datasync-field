@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useRouter } from 'next/router';
 import api from '../lib/api';
 import { Activity } from '../types';
 import ExportButton from '../components/ExportButton';
@@ -6,9 +7,11 @@ import ExportButton from '../components/ExportButton';
 const POLL_MS = 30_000;
 
 export default function ActivitiesPage() {
+  const router = useRouter();
   const [activities, setActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [photoModal, setPhotoModal] = useState<string | null>(null);
   const [filters, setFilters] = useState({
     tech_id: '',
     org_id: '',
@@ -112,6 +115,7 @@ export default function ActivitiesPage() {
               'Duração (min)': a.duration_minutes ?? '',
               Status: a.status,
               Observações: a.notes ?? '',
+              Foto: a.photo_url ?? '',
             }))}
             filename="atividades"
           />
@@ -172,7 +176,7 @@ export default function ActivitiesPage() {
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-100">
                 <tr>
-                  {['Data', 'Técnico', 'Fazenda', 'Máquina', 'Método', 'Hor. Inf.', 'Diff h', 'Duração', 'Status'].map((h) => (
+                  {['Data', 'Técnico', 'Fazenda', 'Máquina', 'Método', 'Hor. Inf.', 'Diff h', 'Duração', 'Status', 'Foto', 'OS'].map((h) => (
                     <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
                       {h}
                     </th>
@@ -220,11 +224,39 @@ export default function ActivitiesPage() {
                         {a.status}
                       </span>
                     </td>
+                    <td className="px-4 py-3">
+                      {a.photo_url ? (
+                        <button
+                          onClick={() => setPhotoModal(a.photo_url!)}
+                          className="block"
+                          title="Ver foto"
+                        >
+                          <img
+                            src={a.photo_url}
+                            alt="painel"
+                            className="w-10 h-10 object-cover rounded border border-gray-200 hover:opacity-80 transition-opacity"
+                          />
+                        </button>
+                      ) : (
+                        <span className="bg-red-100 text-red-600 text-xs font-semibold px-2 py-0.5 rounded-full whitespace-nowrap">
+                          Sem foto
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => router.push(`/activity-report/${a.id}`)}
+                        className="text-xs font-semibold text-jd-green hover:text-green-700 whitespace-nowrap"
+                        title="Ver Ordem de Serviço"
+                      >
+                        📄 Ver OS
+                      </button>
+                    </td>
                   </tr>
                 ))}
                 {activities.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="px-4 py-8 text-center text-gray-400">
+                    <td colSpan={11} className="px-4 py-8 text-center text-gray-400">
                       Nenhuma atividade encontrada.
                     </td>
                   </tr>
@@ -234,6 +266,28 @@ export default function ActivitiesPage() {
           </div>
         )}
       </div>
+
+      {/* Photo modal */}
+      {photoModal && (
+        <div
+          className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4"
+          onClick={() => setPhotoModal(null)}
+        >
+          <div className="relative max-w-2xl w-full" onClick={(e) => e.stopPropagation()}>
+            <button
+              onClick={() => setPhotoModal(null)}
+              className="absolute -top-10 right-0 text-white text-sm font-semibold hover:text-gray-300"
+            >
+              ✕ Fechar
+            </button>
+            <img
+              src={photoModal}
+              alt="Painel da máquina"
+              className="w-full rounded-xl border-2 border-white shadow-2xl object-contain max-h-[80vh]"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

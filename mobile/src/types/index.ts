@@ -13,6 +13,7 @@ export interface Machine {
   is_john_deere: boolean;
   custom_name?: string;
   custom_description?: string;
+  modelo?: string;
   last_call_date?: string;
   machine_hours?: number;
   last_known_lat?: number;

@@ -89,6 +89,20 @@ export async function finishActivity(id: number, notes?: string): Promise<Activi
   return res.data;
 }
 
+export async function uploadActivityPhoto(id: number, photoUri: string): Promise<{ photo_url: string }> {
+  const formData = new FormData();
+  formData.append('photo', {
+    uri: photoUri,
+    name: `panel_${id}_${Date.now()}.jpg`,
+    type: 'image/jpeg',
+  } as unknown as Blob);
+
+  const res = await api.post<{ photo_url: string }>(`/activities/${id}/photo`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return res.data;
+}
+
 export async function markNoUse(id: number): Promise<Activity> {
   const res = await api.put<Activity>(`/activities/${id}/no-use`);
   return res.data;

@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
-  Alert, ActivityIndicator,
+  Alert, ActivityIndicator, Image, ScrollView,
 } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
-import { finishActivity } from '../services/api';
+import * as ImagePicker from 'expo-image-picker';
+import { finishActivity, uploadActivityPhoto } from '../services/api';
 import { queueActivity } from '../services/sync';
 import NetInfo from '@react-native-community/netinfo';
 import { RootStackParamList } from '../navigation/AppNavigator';
@@ -36,10 +37,10 @@ export default function ActivityScreen() {
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
+  const [photoUri, setPhotoUri] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    // Compute initial elapsed in case of re-mount
     const initialElapsed = Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000);
     setElapsed(Math.max(0, initialElapsed));
 
@@ -47,7 +48,30 @@ export default function ActivityScreen() {
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [startedAt]);
 
+  const takePhoto = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permissão negada', 'Autorize o acesso à câmera nas configurações do dispositivo.');
+      return;
+    }
+
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.7,
+      allowsEditing: false,
+    });
+
+    if (!result.canceled && result.assets.length > 0) {
+      setPhotoUri(result.assets[0].uri);
+    }
+  };
+
   const handleFinish = async () => {
+    if (!photoUri) {
+      Alert.alert('Foto obrigatória', 'Tire uma foto do painel antes de finalizar.');
+      return;
+    }
+
     if (timerRef.current) clearInterval(timerRef.current);
     setLoading(true);
 
@@ -56,9 +80,9 @@ export default function ActivityScreen() {
 
     try {
       if (isOnline && activityId > 0) {
+        await uploadActivityPhoto(activityId, photoUri);
         await finishActivity(activityId, notes || undefined);
       } else {
-        // Offline — update the pending activity
         await queueActivity({
           tempId: String(Date.now()),
           org_id: org.id,
@@ -95,7 +119,7 @@ export default function ActivityScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
       {/* Machine info header */}
       <View style={styles.header}>
         <Text style={styles.orgName}>{org.name}</Text>
@@ -125,18 +149,51 @@ export default function ActivityScreen() {
         textAlignVertical="top"
       />
 
+      {/* Photo section */}
+      <View style={styles.photoSection}>
+        {photoUri ? (
+          <View style={styles.photoPreview}>
+            <Image source={{ uri: photoUri }} style={styles.photoThumbnail} />
+            <TouchableOpacity style={styles.retakeButton} onPress={takePhoto}>
+              <Text style={styles.retakeText}>Retomar foto</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={styles.photoPlaceholder}>
+            <TouchableOpacity style={styles.cameraButton} onPress={takePhoto}>
+              <Text style={styles.cameraIcon}>📷</Text>
+              <Text style={styles.cameraButtonText}>Fotografar painel da máquina</Text>
+            </TouchableOpacity>
+            <Text style={styles.photoInstruction}>
+              Tire uma foto do painel mostrando a coleta concluída
+            </Text>
+          </View>
+        )}
+      </View>
+
       {/* Finish button */}
-      <TouchableOpacity style={styles.finishButton} onPress={handleFinish} disabled={loading}>
+      <TouchableOpacity
+        style={[styles.finishButton, !photoUri && styles.finishButtonDisabled]}
+        onPress={handleFinish}
+        disabled={loading || !photoUri}
+      >
         {loading
-          ? <ActivityIndicator color={JD_GREEN} />
+          ? <ActivityIndicator color="#fff" />
           : <Text style={styles.finishButtonText}>Finalizar Operação</Text>}
       </TouchableOpacity>
-    </View>
+
+      {!photoUri && (
+        <Text style={styles.photoRequired}>
+          A foto do painel é obrigatória para finalizar
+        </Text>
+      )}
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f5f5f5', padding: 16, gap: 16 },
+  scroll: { flex: 1, backgroundColor: '#f5f5f5' },
+  container: { padding: 16, gap: 16 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   header: {
     backgroundColor: JD_GREEN,
@@ -179,13 +236,61 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#ddd',
   },
+  photoSection: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#e5e7eb',
+    overflow: 'hidden',
+  },
+  photoPlaceholder: {
+    padding: 20,
+    alignItems: 'center',
+    gap: 10,
+  },
+  cameraButton: {
+    backgroundColor: '#1a1a1a',
+    borderRadius: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  cameraIcon: { fontSize: 20 },
+  cameraButtonText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  photoInstruction: { fontSize: 13, color: '#888', textAlign: 'center' },
+  photoPreview: { alignItems: 'center', padding: 12, gap: 10 },
+  photoThumbnail: {
+    width: '100%',
+    height: 200,
+    borderRadius: 8,
+    backgroundColor: '#f0f0f0',
+  },
+  retakeButton: {
+    borderWidth: 1.5,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 20,
+  },
+  retakeText: { color: '#555', fontWeight: '600', fontSize: 14 },
   finishButton: {
     backgroundColor: JD_GREEN,
     borderRadius: 8,
     padding: 18,
     alignItems: 'center',
   },
+  finishButtonDisabled: {
+    backgroundColor: '#9ca3af',
+  },
   finishButtonText: { color: '#fff', fontWeight: '700', fontSize: 17 },
+  photoRequired: {
+    textAlign: 'center',
+    fontSize: 13,
+    color: '#ef4444',
+    marginTop: -8,
+  },
   doneIcon: { fontSize: 72, color: JD_GREEN },
   doneText: { fontSize: 22, fontWeight: '700', color: JD_GREEN, marginTop: 16 },
   doneSub: { fontSize: 16, color: '#555', marginTop: 8 },

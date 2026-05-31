@@ -51,6 +51,8 @@ export interface Activity {
   duration_minutes?: number;
   status: string;
   notes?: string;
+  photo_url?: string;
+  photo_taken_at?: string;
 }
 
 export interface BiRow {

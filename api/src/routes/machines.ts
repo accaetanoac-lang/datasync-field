@@ -15,7 +15,7 @@ router.get('/search', async (req: Request, res: Response): Promise<void> => {
   }
 
   const rows = await query(
-    `SELECT m.id, m.pin, m.custom_name, m.is_john_deere,
+    `SELECT m.id, m.pin, m.custom_name, m.is_john_deere, m.modelo,
             m.days_offline, m.last_call_date, m.machine_hours,
             m.last_known_lat, m.last_known_lng, m.org_id,
             o.name AS org_name

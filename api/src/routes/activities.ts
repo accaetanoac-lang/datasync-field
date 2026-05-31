@@ -1,4 +1,6 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
+import multer from 'multer';
+import AWS from 'aws-sdk';
 import { query, queryOne } from '../db/client';
 import { authMiddleware } from '../middleware/auth';
 import { Machine } from '../types';
@@ -6,6 +8,18 @@ import { Machine } from '../types';
 const router = Router();
 
 router.use(authMiddleware);
+
+const photoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed'));
+    }
+  },
+}).single('photo');
 
 router.post('/', async (req: Request, res: Response): Promise<void> => {
   const {
@@ -115,6 +129,53 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
   res.status(201).json(activity);
 });
 
+router.post('/:id/photo', (req: Request, res: Response, next: NextFunction): void => {
+  photoUpload(req, res, (err) => {
+    if (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : 'Upload error' });
+      return;
+    }
+    next();
+  });
+}, async (req: Request, res: Response): Promise<void> => {
+  const activityId = parseInt(req.params.id, 10);
+
+  if (!req.file) {
+    res.status(400).json({ error: 'No photo uploaded — send field "photo" as image file' });
+    return;
+  }
+
+  const existing = await queryOne<{ id: number }>(
+    'SELECT id FROM activities WHERE id = $1',
+    [activityId]
+  );
+  if (!existing) {
+    res.status(404).json({ error: 'Activity not found' });
+    return;
+  }
+
+  const s3 = new AWS.S3({ region: process.env.AWS_REGION ?? 'us-east-1' });
+  const timestamp = Date.now();
+  const key = `activities/${activityId}/panel_${timestamp}.jpg`;
+  const bucket = 'datasync-field-uploads-496795891165';
+
+  await s3.putObject({
+    Bucket: bucket,
+    Key: key,
+    Body: req.file.buffer,
+    ContentType: req.file.mimetype,
+  }).promise();
+
+  const photoUrl = `https://${bucket}.s3.amazonaws.com/${key}`;
+
+  await queryOne(
+    `UPDATE activities SET photo_url = $1, photo_taken_at = NOW() WHERE id = $2 RETURNING id`,
+    [photoUrl, activityId]
+  );
+
+  res.json({ photo_url: photoUrl });
+});
+
 router.put('/:id/finish', async (req: Request, res: Response): Promise<void> => {
   const { notes } = req.body as { notes?: string };
   const activityId = parseInt(req.params.id, 10);
@@ -151,7 +212,6 @@ router.put('/:id/finish', async (req: Request, res: Response): Promise<void> => 
 router.put('/:id/no-use', async (req: Request, res: Response): Promise<void> => {
   const activityId = parseInt(req.params.id, 10);
 
-  // Allow creating a no-use record directly (without prior activity)
   const existing = await queryOne<{ id: number }>(
     'SELECT id FROM activities WHERE id = $1',
     [activityId]
@@ -273,6 +333,36 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
   );
 
   res.json(rows);
+});
+
+router.get('/:id/report', async (req: Request, res: Response): Promise<void> => {
+  const activityId = parseInt(req.params.id, 10);
+
+  const activity = await queryOne(
+    `SELECT
+       a.*,
+       t.name AS technician_name,
+       t.employee_id,
+       o.name AS org_name,
+       m.pin AS machine_pin,
+       m.custom_name AS machine_custom_name,
+       m.modelo,
+       m.machine_hours AS machine_last_hours,
+       m.days_offline
+     FROM activities a
+     LEFT JOIN technicians t ON t.id = a.technician_id
+     LEFT JOIN organizations o ON o.id = a.org_id
+     LEFT JOIN machines m ON m.id = a.machine_id
+     WHERE a.id = $1`,
+    [activityId]
+  );
+
+  if (!activity) {
+    res.status(404).json({ error: 'Activity not found' });
+    return;
+  }
+
+  res.json(activity);
 });
 
 export default router;
