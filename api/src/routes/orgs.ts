@@ -55,7 +55,7 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
 router.get('/:id/machines', async (req: Request, res: Response): Promise<void> => {
   const machines = await query(
     `SELECT id, pin, days_offline, machine_hours, last_call_date,
-            last_known_lat, last_known_lng, offline_range, custom_name, is_john_deere
+            last_known_lat, last_known_lng, offline_range, custom_name, is_john_deere, modelo
      FROM machines
      WHERE org_id = $1
        AND (days_offline >= 30 OR last_call_date IS NULL)

@@ -33,7 +33,9 @@ export default function MachineDetailScreen() {
   const [noUseConfirmed, setNoUseConfirmed] = useState(false);
   const [conflictError, setConflictError] = useState<string | null>(null);
 
-  const lastHours = machine.machine_hours ?? 0;
+  // PostgreSQL NUMERIC columns arrive as strings — force to number upfront
+  const lastHours = Number(machine.machine_hours ?? 0);
+  const daysOffline = Number(machine.days_offline ?? 0);
 
   const handleHoursChange = (text: string) => {
     setCurrentHours(text);
@@ -63,8 +65,12 @@ export default function MachineDetailScreen() {
     setHoursError(null);
     const hoursDiff = val - lastHours;
 
-    // Connectivity diagnosis: long offline + low hour delta = likely connection failure, not no-use
-    if ((machine.days_offline ?? 0) >= 90 && hoursDiff <= 10) {
+    console.log('[MachineDetail] days_offline:', machine.days_offline, typeof machine.days_offline, '→', daysOffline);
+    console.log('[MachineDetail] hoursDiff:', hoursDiff, typeof hoursDiff);
+    console.log('[MachineDetail] diagnosis condition (>=90d && <=10h):', daysOffline >= 90 && hoursDiff <= 10);
+
+    // Connectivity diagnosis: long offline + small hour delta = modem failure, not no-use
+    if (daysOffline >= 90 && hoursDiff <= 10) {
       navigation.navigate('Diagnosis', { machine, org, hoursDiff });
       return;
     }
