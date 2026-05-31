@@ -163,7 +163,7 @@ export default function MachineDetailScreen() {
       {/* Result based on diff */}
       {diff !== null && (
         <View style={styles.diffSection}>
-          {/* diff is always < 50 here — diff >= 50 navigates to Diagnosis */}
+          {/* diff is always < 10 here — diff >= 10 navigates to Diagnosis */}
           <View style={styles.noUseWarning}>
             <Text style={styles.noUseTitle}>
               {diff === 0 ? 'Máquina sem uso' : 'Máquina sem uso após última subida de dados'}
@@ -171,7 +171,7 @@ export default function MachineDetailScreen() {
             <Text style={styles.noUseSubtitle}>
               {diff === 0
                 ? `Horímetro idêntico ao da última conexão (${lastHours} h).`
-                : `Diferença de ${diff.toFixed(1)} horas — abaixo de 50 h.`}
+                : `Diferença de ${diff.toFixed(1)} horas — abaixo de 10 h.`}
             </Text>
           </View>
           <TouchableOpacity

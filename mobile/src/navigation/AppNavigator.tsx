@@ -12,6 +12,7 @@ import MachineListScreen from '../screens/MachineListScreen';
 import MachineDetailScreen from '../screens/MachineDetailScreen';
 import ActivityScreen, { ACTIVE_ACTIVITY_KEY } from '../screens/ActivityScreen';
 import DiagnosisScreen from '../screens/DiagnosisScreen';
+import ConnectivityDiagnosisScreen from '../screens/ConnectivityDiagnosisScreen';
 import NonJDMachineScreen from '../screens/NonJDMachineScreen';
 import { Organization, Machine } from '../types';
 
@@ -40,6 +41,11 @@ export type RootStackParamList = {
     org: Organization;
     currentHours: number;
     hoursDiff: number;
+  };
+  ConnectivityDiagnosis: {
+    machine: Machine;
+    org: Organization;
+    currentHours: number;
   };
   NonJDMachine: { org?: Organization; prefillPin?: string };
 };
@@ -177,6 +183,11 @@ export default function AppNavigator() {
             <Stack.Screen
               name="Diagnosis"
               component={DiagnosisScreen}
+              options={{ title: '🔧 Diagnóstico de Conectividade' }}
+            />
+            <Stack.Screen
+              name="ConnectivityDiagnosis"
+              component={ConnectivityDiagnosisScreen}
               options={{ title: '🔧 Diagnóstico de Conectividade' }}
             />
             <Stack.Screen
