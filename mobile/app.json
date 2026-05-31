@@ -22,7 +22,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#367C2B"
+        "backgroundColor": "#FFDE00"
       },
       "package": "com.sincronus.datasyncfield",
       "versionCode": 2,

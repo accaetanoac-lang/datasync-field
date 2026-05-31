@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- John Deere Yellow background -->
+  <rect width="1024" height="1024" fill="#FFDE00"/>
+
+  <!-- === TRACTOR SILHOUETTE (John Deere Green) ===
+       Tractor faces left: front on left, rear/cab on right -->
+
+  <!-- Large rear wheel -->
+  <circle cx="698" cy="620" r="202" fill="#367C2B"/>
+  <!-- Rear hub ring -->
+  <circle cx="698" cy="620" r="65" fill="#FFDE00"/>
+  <circle cx="698" cy="620" r="30" fill="#367C2B"/>
+
+  <!-- Small front wheel -->
+  <circle cx="254" cy="688" r="108" fill="#367C2B"/>
+  <!-- Front hub ring -->
+  <circle cx="254" cy="688" r="36" fill="#FFDE00"/>
+  <circle cx="254" cy="688" r="16" fill="#367C2B"/>
+
+  <!-- Main chassis (horizontal body connecting both axles) -->
+  <rect x="254" y="560" width="444" height="122" rx="8" fill="#367C2B"/>
+
+  <!-- Hood / engine compartment (lower, extends forward of cab) -->
+  <rect x="130" y="480" width="334" height="92" rx="8" fill="#367C2B"/>
+
+  <!-- Front weight block / bumper -->
+  <rect x="112" y="518" width="44" height="54" rx="5" fill="#367C2B"/>
+
+  <!-- Operator cab (sits on chassis, over rear wheel area) -->
+  <rect x="456" y="330" width="252" height="242" rx="10" fill="#367C2B"/>
+
+  <!-- Cab roof / ROPS bar (extends slightly beyond cab sides) -->
+  <rect x="430" y="324" width="304" height="24" rx="5" fill="#367C2B"/>
+
+  <!-- Exhaust pipe -->
+  <rect x="508" y="200" width="38" height="136" rx="6" fill="#367C2B"/>
+  <!-- Exhaust flare cap -->
+  <ellipse cx="527" cy="198" rx="30" ry="15" fill="#367C2B"/>
+
+  <!-- Cab windows (yellow, two panes) -->
+  <rect x="472" y="354" width="88" height="84" rx="6" fill="#FFDE00"/>
+  <rect x="574" y="354" width="88" height="84" rx="6" fill="#FFDE00"/>
+</svg>
