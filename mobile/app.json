@@ -25,6 +25,7 @@
         "backgroundColor": "#367C2B"
       },
       "package": "com.sincronus.datasyncfield",
+      "versionCode": 1,
       "permissions": [
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION"
