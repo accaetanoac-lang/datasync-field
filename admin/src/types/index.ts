@@ -52,6 +52,7 @@ export interface Activity {
   status: string;
   notes?: string;
   photo_url?: string;
+  pre_signed_photo_url?: string;
   photo_taken_at?: string;
 }
 

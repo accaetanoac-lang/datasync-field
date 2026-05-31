@@ -228,14 +228,14 @@ export default function ActivitiesPage() {
                       {a.photo_url ? (
                         <button
                           onClick={() => setPhotoModal({
-                            url: a.photo_url!,
+                            url: a.pre_signed_photo_url ?? a.photo_url!,
                             caption: `Painel da máquina — ${a.technician_name ?? '—'} — ${new Date(a.photo_taken_at ?? a.created_at).toLocaleDateString('pt-BR')}`,
                           })}
                           className="block"
                           title="Ver foto completa"
                         >
                           <img
-                            src={a.photo_url}
+                            src={a.pre_signed_photo_url ?? a.photo_url}
                             alt="painel"
                             className="w-10 h-10 object-cover rounded border border-gray-200 hover:opacity-80 transition-opacity"
                           />

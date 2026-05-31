@@ -24,6 +24,7 @@ interface ActivityReport {
   status: string;
   notes?: string;
   photo_url?: string;
+  pre_signed_photo_url?: string;
   photo_taken_at?: string;
   created_at: string;
 }
@@ -173,7 +174,7 @@ export default function ActivityReportPage() {
           {report.photo_url ? (
             <div className="px-4 pb-4">
               <img
-                src={report.photo_url}
+                src={report.pre_signed_photo_url ?? report.photo_url}
                 alt="Painel da máquina"
                 className="w-full rounded-lg border border-gray-200 object-cover"
                 style={{ maxHeight: 360 }}

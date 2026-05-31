@@ -9,6 +9,14 @@ const router = Router();
 
 router.use(authMiddleware);
 
+const BUCKET = 'datasync-field-uploads-496795891165';
+
+// getSignedUrl is synchronous in SDK v2 for simple GETs — no await needed.
+function presign(s3: AWS.S3, photoUrl: string): string {
+  const key = new URL(photoUrl).pathname.slice(1); // strip leading /
+  return s3.getSignedUrl('getObject', { Bucket: BUCKET, Key: key, Expires: 3600 });
+}
+
 const photoUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 },
@@ -179,7 +187,7 @@ router.post('/:id/photo', (req: Request, res: Response, next: NextFunction): voi
       [photoUrl, activityId]
     );
 
-    res.json({ photo_url: photoUrl });
+    res.json({ photo_url: photoUrl, pre_signed_photo_url: presign(s3, photoUrl) });
   } catch (error) {
     console.error('Photo upload error:', error);
     next(error);
@@ -342,7 +350,13 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     params
   );
 
-  res.json(rows);
+  const s3 = new AWS.S3({ region: process.env.AWS_REGION ?? 'us-east-1' });
+  const result = (rows as Record<string, unknown>[]).map((row) =>
+    row.photo_url
+      ? { ...row, pre_signed_photo_url: presign(s3, row.photo_url as string) }
+      : row
+  );
+  res.json(result);
 });
 
 router.get('/:id/report', async (req: Request, res: Response): Promise<void> => {
@@ -372,7 +386,11 @@ router.get('/:id/report', async (req: Request, res: Response): Promise<void> => 
     return;
   }
 
-  res.json(activity);
+  const s3 = new AWS.S3({ region: process.env.AWS_REGION ?? 'us-east-1' });
+  const enriched = (activity as Record<string, unknown>).photo_url
+    ? { ...activity, pre_signed_photo_url: presign(s3, (activity as Record<string, unknown>).photo_url as string) }
+    : activity;
+  res.json(enriched);
 });
 
 export default router;
