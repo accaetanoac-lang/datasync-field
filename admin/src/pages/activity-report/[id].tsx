@@ -21,12 +21,16 @@ interface ActivityReport {
   started_at?: string;
   finished_at?: string;
   duration_minutes?: number;
+  total_pause_minutes?: number;
   status: string;
   notes?: string;
   photo_url?: string;
   pre_signed_photo_url?: string;
   photo_taken_at?: string;
   created_at: string;
+  is_diagnosis?: boolean;
+  diagnosis_result?: string;
+  connectivity_issue?: boolean;
 }
 
 function pad(n: number): string {
@@ -48,6 +52,14 @@ function formatDateTime(iso?: string): string {
 const METHOD_LABEL: Record<string, string> = {
   starlink_data_sync: 'Starlink + Data Sync',
   pen_drive: 'Pen Drive',
+  diagnosis: 'Diagnóstico de Conectividade',
+};
+
+const DIAGNOSIS_RESULT_LABEL: Record<string, string> = {
+  resolved:     '✅ Conectividade restabelecida',
+  escalated:    '🔧 Escalonado para suporte técnico',
+  needs_return: '🔄 Requer retorno',
+  unidentified: '❌ Causa não identificada',
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -167,8 +179,25 @@ export default function ActivityReportPage() {
           <Row label="Início" value={formatDateTime(report.started_at)} />
           <Row label="Término" value={formatDateTime(report.finished_at)} />
           <Row label="Duração" value={formatDuration(report.duration_minutes)} />
+          {report.total_pause_minutes != null && report.total_pause_minutes > 0 && (
+            <Row label="Tempo pausado" value={`${report.total_pause_minutes} min`} />
+          )}
           <Row label="Status" value={STATUS_LABEL[report.status] ?? report.status} />
         </Section>
+
+        {report.is_diagnosis && (
+          <Section title="DIAGNÓSTICO DE CONECTIVIDADE">
+            <Row
+              label="Resultado"
+              value={report.diagnosis_result
+                ? (DIAGNOSIS_RESULT_LABEL[report.diagnosis_result] ?? report.diagnosis_result)
+                : 'Em andamento'}
+            />
+            {report.connectivity_issue && (
+              <Row label="Falha de conectividade" value="Confirmada" />
+            )}
+          </Section>
+        )}
 
         <Section title="EVIDÊNCIA FOTOGRÁFICA">
           {report.photo_url ? (

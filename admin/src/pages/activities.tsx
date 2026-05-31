@@ -25,9 +25,12 @@ export default function ActivitiesPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const params = Object.fromEntries(
-        Object.entries(filters).filter(([, v]) => v !== '')
+      const { activity_type, ...rest } = filters;
+      const params: Record<string, string> = Object.fromEntries(
+        Object.entries(rest).filter(([, v]) => v !== '')
       );
+      if (activity_type === 'diagnosis') params.is_diagnosis = 'true';
+      else if (activity_type === 'normal') params.is_diagnosis = 'false';
       const res = await api.get<Activity[]>('/activities', { params });
       setActivities(Array.isArray(res.data) ? res.data : []);
       setLastUpdated(new Date());

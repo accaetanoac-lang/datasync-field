@@ -34,7 +34,7 @@ export interface Activity {
   technician_id: number;
   machine_id?: number;
   org_id?: number;
-  method: 'starlink_data_sync' | 'pen_drive';
+  method: 'starlink_data_sync' | 'pen_drive' | 'diagnosis';
   status: 'in_progress' | 'completed' | 'no_use';
   current_hours?: number;
   hours_diff?: number;
@@ -45,6 +45,10 @@ export interface Activity {
   duration_minutes?: number;
   notes?: string;
   synced_offline: boolean;
+  is_diagnosis?: boolean;
+  diagnosis_result?: string;
+  connectivity_issue?: boolean;
+  total_pause_minutes?: number;
 }
 
 export interface PendingActivity {

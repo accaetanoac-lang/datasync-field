@@ -87,6 +87,9 @@ export async function startActivity(data: {
 export async function startDiagnosisActivity(data: {
   org_id?: number;
   machine_id?: number;
+  current_hours?: number;
+  tech_lat?: number;
+  tech_lng?: number;
 }): Promise<Activity> {
   const res = await api.post<Activity>('/activities', {
     ...data,

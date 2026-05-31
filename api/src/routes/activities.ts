@@ -10,13 +10,10 @@ const router = Router();
 router.use(authMiddleware);
 
 const BUCKET = 'datasync-field-uploads-496795891165';
+const ALLOWED_METHODS = ['starlink_data_sync', 'pen_drive', 'diagnosis'];
 
-// getSignedUrl is nominally synchronous in SDK v2, but container credentials
-// (AWS_CONTAINER_CREDENTIALS_RELATIVE_URI) are resolved lazily and may not be
-// cached yet on the first call, causing it to silently return a stub URL.
-// getSignedUrlPromise() properly awaits credential resolution before signing.
 async function presign(s3: AWS.S3, photoUrl: string): Promise<string> {
-  const key = new URL(photoUrl).pathname.slice(1); // strip leading /
+  const key = new URL(photoUrl).pathname.slice(1);
   return s3.getSignedUrlPromise('getObject', { Bucket: BUCKET, Key: key, Expires: 3600 });
 }
 
@@ -32,6 +29,8 @@ const photoUpload = multer({
   },
 }).single('photo');
 
+// ─── POST / — Start activity or diagnosis ────────────────────────────────────
+
 router.post('/', async (req: Request, res: Response): Promise<void> => {
   const {
     org_id,
@@ -44,6 +43,8 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     notes,
     is_diagnosis,
     connectivity_issue,
+    diagnosis_result,
+    diagnosis_checklist,
   } = req.body as {
     org_id?: number;
     machine_id?: number;
@@ -55,15 +56,17 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     notes?: string;
     is_diagnosis?: boolean;
     connectivity_issue?: boolean;
+    diagnosis_result?: string;
+    diagnosis_checklist?: boolean[];
   };
 
-  if (!method || !['starlink_data_sync', 'pen_drive', 'diagnosis'].includes(method)) {
-    res.status(400).json({ error: 'method must be starlink_data_sync, pen_drive, or diagnosis' });
+  if (!method || !ALLOWED_METHODS.includes(method)) {
+    res.status(400).json({ error: `method must be one of: ${ALLOWED_METHODS.join(', ')}` });
     return;
   }
 
-  // Diagnosis activities skip hours-diff validation and conflict check
-  if (!is_diagnosis && machine_id) {
+  // Conflict check (skip for diagnosis — technician is investigating, not collecting)
+  if (machine_id && !is_diagnosis) {
     const conflict = await queryOne<{ status: string; technician_name: string | null }>(
       `SELECT a.status, t.name AS technician_name
        FROM activities a
@@ -89,7 +92,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     }
   }
 
-  // Validate hours diff for JD machines (skip for diagnosis activities)
+  // Hours diff validation — skip for diagnosis (low diff is the trigger condition)
   if (!is_diagnosis && machine_id && current_hours !== undefined) {
     const machine = await queryOne<Machine>(
       'SELECT * FROM machines WHERE id = $1',
@@ -120,8 +123,9 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
   const rows = await query<{ id: number }>(
     `INSERT INTO activities
        (technician_id, machine_id, org_id, method, status, current_hours, hours_diff,
-        tech_lat, tech_lng, started_at, synced_offline, notes, is_diagnosis, connectivity_issue)
-     VALUES ($1,$2,$3,$4,'in_progress',$5,$6,$7,$8,NOW(),$9,$10,$11,$12)
+        tech_lat, tech_lng, started_at, synced_offline, notes,
+        is_diagnosis, connectivity_issue, diagnosis_result, diagnosis_checklist)
+     VALUES ($1,$2,$3,$4,'in_progress',$5,$6,$7,$8,NOW(),$9,$10,$11,$12,$13,$14)
      RETURNING id`,
     [
       req.user!.id,
@@ -136,15 +140,16 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       notes ?? null,
       is_diagnosis ?? false,
       connectivity_issue ?? false,
+      diagnosis_result ?? null,
+      diagnosis_checklist ? JSON.stringify(diagnosis_checklist) : null,
     ]
   );
 
-  const activity = await queryOne(
-    'SELECT * FROM activities WHERE id = $1',
-    [rows[0].id]
-  );
+  const activity = await queryOne('SELECT * FROM activities WHERE id = $1', [rows[0].id]);
   res.status(201).json(activity);
 });
+
+// ─── POST /:id/photo ─────────────────────────────────────────────────────────
 
 router.post('/:id/photo', (req: Request, res: Response, next: NextFunction): void => {
   photoUpload(req, res, (err) => {
@@ -179,7 +184,7 @@ router.post('/:id/photo', (req: Request, res: Response, next: NextFunction): voi
     const s3 = new AWS.S3({ region: process.env.AWS_REGION ?? 'us-east-1' });
     const timestamp = Date.now();
     const key = `activities/${activityId}/panel_${timestamp}.jpg`;
-    const bucket = 'datasync-field-uploads-496795891165';
+    const bucket = BUCKET;
 
     console.log('Uploading to S3:', bucket, key);
     await s3.putObject({
@@ -203,11 +208,13 @@ router.post('/:id/photo', (req: Request, res: Response, next: NextFunction): voi
   }
 });
 
+// ─── PUT /:id/pause ──────────────────────────────────────────────────────────
+
 router.put('/:id/pause', async (req: Request, res: Response): Promise<void> => {
   const activityId = parseInt(req.params.id, 10);
 
-  const existing = await queryOne<{ id: number; technician_id: number; paused_at: Date | null }>(
-    'SELECT id, technician_id, paused_at FROM activities WHERE id = $1',
+  const existing = await queryOne<{ id: number; paused_at: Date | null }>(
+    'SELECT id, paused_at FROM activities WHERE id = $1',
     [activityId]
   );
 
@@ -215,12 +222,6 @@ router.put('/:id/pause', async (req: Request, res: Response): Promise<void> => {
     res.status(404).json({ error: 'Activity not found' });
     return;
   }
-
-  if (req.user!.role !== 'admin' && existing.technician_id !== req.user!.id) {
-    res.status(403).json({ error: 'Not authorized' });
-    return;
-  }
-
   if (existing.paused_at) {
     res.status(409).json({ error: 'Activity is already paused' });
     return;
@@ -231,18 +232,16 @@ router.put('/:id/pause', async (req: Request, res: Response): Promise<void> => {
     [activityId]
   );
 
-  res.json(updated);
+  res.json({ paused_at: updated!.paused_at });
 });
+
+// ─── PUT /:id/resume ─────────────────────────────────────────────────────────
 
 router.put('/:id/resume', async (req: Request, res: Response): Promise<void> => {
   const activityId = parseInt(req.params.id, 10);
 
-  const existing = await queryOne<{
-    id: number;
-    technician_id: number;
-    paused_at: Date | null;
-  }>(
-    'SELECT id, technician_id, paused_at FROM activities WHERE id = $1',
+  const existing = await queryOne<{ id: number; paused_at: Date | null }>(
+    'SELECT id, paused_at FROM activities WHERE id = $1',
     [activityId]
   );
 
@@ -250,12 +249,6 @@ router.put('/:id/resume', async (req: Request, res: Response): Promise<void> => 
     res.status(404).json({ error: 'Activity not found' });
     return;
   }
-
-  if (req.user!.role !== 'admin' && existing.technician_id !== req.user!.id) {
-    res.status(403).json({ error: 'Not authorized' });
-    return;
-  }
-
   if (!existing.paused_at) {
     res.status(409).json({ error: 'Activity is not paused' });
     return;
@@ -263,24 +256,21 @@ router.put('/:id/resume', async (req: Request, res: Response): Promise<void> => 
 
   const updated = await queryOne<{ total_pause_minutes: number }>(
     `UPDATE activities
-     SET total_pause_minutes = COALESCE(total_pause_minutes, 0) +
-           ROUND(EXTRACT(EPOCH FROM (NOW() - paused_at)) / 60),
+     SET total_pause_minutes = COALESCE(total_pause_minutes, 0)
+                               + FLOOR(EXTRACT(EPOCH FROM (NOW() - paused_at)) / 60),
          paused_at = NULL
      WHERE id = $1
      RETURNING total_pause_minutes`,
     [activityId]
   );
 
-  res.json(updated);
+  res.json({ total_pause_minutes: updated!.total_pause_minutes });
 });
 
+// ─── PUT /:id/finish ─────────────────────────────────────────────────────────
+
 router.put('/:id/finish', async (req: Request, res: Response): Promise<void> => {
-  const {
-    notes,
-    diagnosis_result,
-    diagnosis_checklist,
-    total_pause_minutes: clientPauseMinutes,
-  } = req.body as {
+  const { notes, diagnosis_result, diagnosis_checklist, total_pause_minutes } = req.body as {
     notes?: string;
     diagnosis_result?: string;
     diagnosis_checklist?: boolean[];
@@ -288,14 +278,8 @@ router.put('/:id/finish', async (req: Request, res: Response): Promise<void> => 
   };
   const activityId = parseInt(req.params.id, 10);
 
-  const existing = await queryOne<{
-    id: number;
-    technician_id: number;
-    started_at: Date;
-    is_diagnosis: boolean;
-    total_pause_minutes: number;
-  }>(
-    'SELECT id, technician_id, started_at, is_diagnosis, total_pause_minutes FROM activities WHERE id = $1',
+  const existing = await queryOne<{ id: number; technician_id: number; started_at: Date }>(
+    'SELECT id, technician_id, started_at FROM activities WHERE id = $1',
     [activityId]
   );
 
@@ -309,29 +293,30 @@ router.put('/:id/finish', async (req: Request, res: Response): Promise<void> => 
     return;
   }
 
-  // For diagnosis: subtract pause minutes from total elapsed
-  const pauseMinutes = existing.is_diagnosis
-    ? Math.max(0, clientPauseMinutes ?? existing.total_pause_minutes ?? 0)
-    : 0;
-
+  // Duration = wall time minus accumulated pause time.
+  // Client-sent total_pause_minutes takes precedence (works offline when resume wasn't called).
+  // paused_at fallback handles crash-during-pause edge case.
   const updated = await queryOne(
     `UPDATE activities
      SET finished_at = NOW(),
          status = 'completed',
          duration_minutes = GREATEST(0,
-           ROUND(EXTRACT(EPOCH FROM (NOW() - started_at)) / 60) - $3
+           FLOOR(EXTRACT(EPOCH FROM (NOW() - started_at)) / 60)
+           - COALESCE($2::integer, total_pause_minutes, 0)
+           - CASE WHEN paused_at IS NOT NULL AND $2::integer IS NULL
+               THEN FLOOR(EXTRACT(EPOCH FROM (NOW() - paused_at)) / 60)
+               ELSE 0 END
          ),
-         notes = COALESCE($2, notes),
-         diagnosis_result    = COALESCE($4, diagnosis_result),
-         diagnosis_checklist = COALESCE($5, diagnosis_checklist),
-         total_pause_minutes = $3,
-         paused_at = NULL
+         paused_at = NULL,
+         notes = COALESCE($3, notes),
+         diagnosis_result = COALESCE($4, diagnosis_result),
+         diagnosis_checklist = COALESCE($5::jsonb, diagnosis_checklist)
      WHERE id = $1
      RETURNING *`,
     [
       activityId,
+      total_pause_minutes ?? null,
       notes ?? null,
-      pauseMinutes,
       diagnosis_result ?? null,
       diagnosis_checklist ? JSON.stringify(diagnosis_checklist) : null,
     ]
@@ -339,6 +324,8 @@ router.put('/:id/finish', async (req: Request, res: Response): Promise<void> => 
 
   res.json(updated);
 });
+
+// ─── PUT /:id/no-use ─────────────────────────────────────────────────────────
 
 router.put('/:id/no-use', async (req: Request, res: Response): Promise<void> => {
   const activityId = parseInt(req.params.id, 10);
@@ -360,6 +347,8 @@ router.put('/:id/no-use', async (req: Request, res: Response): Promise<void> => 
 
   res.json(updated);
 });
+
+// ─── POST /no-use-direct ─────────────────────────────────────────────────────
 
 router.post('/no-use-direct', async (req: Request, res: Response): Promise<void> => {
   const { org_id, machine_id, current_hours, tech_lat, tech_lng, synced_offline } = req.body as {
@@ -402,6 +391,8 @@ router.post('/no-use-direct', async (req: Request, res: Response): Promise<void>
   res.status(201).json(activity);
 });
 
+// ─── GET / — List activities ─────────────────────────────────────────────────
+
 router.get('/', async (req: Request, res: Response): Promise<void> => {
   const {
     tech_id,
@@ -410,10 +401,9 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     date_to,
     status,
     method,
-    activity_type,
+    is_diagnosis,
   } = req.query as Record<string, string>;
 
-  // Non-admin technicians only see their own activities
   const effectiveTechId =
     req.user!.role !== 'admin' ? String(req.user!.id) : tech_id;
 
@@ -445,10 +435,9 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     conditions.push(`a.method = $${paramIdx++}`);
     params.push(method);
   }
-  if (activity_type === 'diagnosis') {
-    conditions.push(`a.is_diagnosis = TRUE`);
-  } else if (activity_type === 'normal') {
-    conditions.push(`(a.is_diagnosis = FALSE OR a.is_diagnosis IS NULL)`);
+  if (is_diagnosis !== undefined) {
+    conditions.push(`a.is_diagnosis = $${paramIdx++}`);
+    params.push(is_diagnosis === 'true');
   }
 
   const rows = await query(
@@ -479,6 +468,8 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
   );
   res.json(result);
 });
+
+// ─── GET /:id/report ─────────────────────────────────────────────────────────
 
 router.get('/:id/report', async (req: Request, res: Response): Promise<void> => {
   const activityId = parseInt(req.params.id, 10);

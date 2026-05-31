@@ -38,7 +38,7 @@ export default function DashboardPage() {
       }),
       api.get<Activity[]>('/activities', {
         params: {
-          activity_type: 'diagnosis',
+          is_diagnosis: 'true',
           date_from: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
         },
       }),
