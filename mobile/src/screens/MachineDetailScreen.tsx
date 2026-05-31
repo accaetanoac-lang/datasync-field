@@ -61,7 +61,15 @@ export default function MachineDetailScreen() {
       return;
     }
     setHoursError(null);
-    setDiff(val - lastHours);
+    const hoursDiff = val - lastHours;
+
+    // Connectivity diagnosis: long offline + low hour delta = likely connection failure, not no-use
+    if ((machine.days_offline ?? 0) >= 90 && hoursDiff <= 10) {
+      navigation.navigate('Diagnosis', { machine, org, hoursDiff });
+      return;
+    }
+
+    setDiff(hoursDiff);
   };
 
   const handleNoUse = async () => {

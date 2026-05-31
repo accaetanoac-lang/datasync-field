@@ -11,6 +11,7 @@ import SearchOrgScreen from '../screens/SearchOrgScreen';
 import MachineListScreen from '../screens/MachineListScreen';
 import MachineDetailScreen from '../screens/MachineDetailScreen';
 import ActivityScreen, { ACTIVE_ACTIVITY_KEY } from '../screens/ActivityScreen';
+import DiagnosisScreen from '../screens/DiagnosisScreen';
 import NonJDMachineScreen from '../screens/NonJDMachineScreen';
 import { Organization, Machine } from '../types';
 
@@ -33,6 +34,11 @@ export type RootStackParamList = {
     activityId: number;
     method: 'starlink_data_sync' | 'pen_drive';
     startedAt: string;
+  };
+  Diagnosis: {
+    machine: Machine;
+    org: Organization;
+    hoursDiff?: number;
   };
   NonJDMachine: { org?: Organization; prefillPin?: string };
 };
@@ -166,6 +172,11 @@ export default function AppNavigator() {
               name="Activity"
               component={ActivityScreen}
               options={{ title: 'Atividade em Andamento' }}
+            />
+            <Stack.Screen
+              name="Diagnosis"
+              component={DiagnosisScreen}
+              options={{ title: '🔧 Diagnóstico de Conectividade' }}
             />
             <Stack.Screen
               name="NonJDMachine"

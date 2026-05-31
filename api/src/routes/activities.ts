@@ -42,6 +42,8 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     tech_lng,
     synced_offline,
     notes,
+    is_diagnosis,
+    connectivity_issue,
   } = req.body as {
     org_id?: number;
     machine_id?: number;
@@ -51,15 +53,17 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     tech_lng?: number;
     synced_offline?: boolean;
     notes?: string;
+    is_diagnosis?: boolean;
+    connectivity_issue?: boolean;
   };
 
-  if (!method || !['starlink_data_sync', 'pen_drive'].includes(method)) {
-    res.status(400).json({ error: 'method must be starlink_data_sync or pen_drive' });
+  if (!method || !['starlink_data_sync', 'pen_drive', 'diagnosis'].includes(method)) {
+    res.status(400).json({ error: 'method must be starlink_data_sync, pen_drive, or diagnosis' });
     return;
   }
 
-  // Conflict check: another technician already in_progress or completed for this machine
-  if (machine_id) {
+  // Diagnosis activities skip hours-diff validation and conflict check
+  if (!is_diagnosis && machine_id) {
     const conflict = await queryOne<{ status: string; technician_name: string | null }>(
       `SELECT a.status, t.name AS technician_name
        FROM activities a
@@ -85,8 +89,8 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     }
   }
 
-  // Validate hours diff for JD machines
-  if (machine_id && current_hours !== undefined) {
+  // Validate hours diff for JD machines (skip for diagnosis activities)
+  if (!is_diagnosis && machine_id && current_hours !== undefined) {
     const machine = await queryOne<Machine>(
       'SELECT * FROM machines WHERE id = $1',
       [machine_id]
@@ -116,8 +120,8 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
   const rows = await query<{ id: number }>(
     `INSERT INTO activities
        (technician_id, machine_id, org_id, method, status, current_hours, hours_diff,
-        tech_lat, tech_lng, started_at, synced_offline, notes)
-     VALUES ($1,$2,$3,$4,'in_progress',$5,$6,$7,$8,NOW(),$9,$10)
+        tech_lat, tech_lng, started_at, synced_offline, notes, is_diagnosis, connectivity_issue)
+     VALUES ($1,$2,$3,$4,'in_progress',$5,$6,$7,$8,NOW(),$9,$10,$11,$12)
      RETURNING id`,
     [
       req.user!.id,
@@ -130,6 +134,8 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       tech_lng ?? null,
       synced_offline ?? false,
       notes ?? null,
+      is_diagnosis ?? false,
+      connectivity_issue ?? false,
     ]
   );
 
@@ -197,12 +203,99 @@ router.post('/:id/photo', (req: Request, res: Response, next: NextFunction): voi
   }
 });
 
-router.put('/:id/finish', async (req: Request, res: Response): Promise<void> => {
-  const { notes } = req.body as { notes?: string };
+router.put('/:id/pause', async (req: Request, res: Response): Promise<void> => {
   const activityId = parseInt(req.params.id, 10);
 
-  const existing = await queryOne<{ id: number; technician_id: number; started_at: Date }>(
-    'SELECT id, technician_id, started_at FROM activities WHERE id = $1',
+  const existing = await queryOne<{ id: number; technician_id: number; paused_at: Date | null }>(
+    'SELECT id, technician_id, paused_at FROM activities WHERE id = $1',
+    [activityId]
+  );
+
+  if (!existing) {
+    res.status(404).json({ error: 'Activity not found' });
+    return;
+  }
+
+  if (req.user!.role !== 'admin' && existing.technician_id !== req.user!.id) {
+    res.status(403).json({ error: 'Not authorized' });
+    return;
+  }
+
+  if (existing.paused_at) {
+    res.status(409).json({ error: 'Activity is already paused' });
+    return;
+  }
+
+  const updated = await queryOne<{ paused_at: Date }>(
+    `UPDATE activities SET paused_at = NOW() WHERE id = $1 RETURNING paused_at`,
+    [activityId]
+  );
+
+  res.json(updated);
+});
+
+router.put('/:id/resume', async (req: Request, res: Response): Promise<void> => {
+  const activityId = parseInt(req.params.id, 10);
+
+  const existing = await queryOne<{
+    id: number;
+    technician_id: number;
+    paused_at: Date | null;
+  }>(
+    'SELECT id, technician_id, paused_at FROM activities WHERE id = $1',
+    [activityId]
+  );
+
+  if (!existing) {
+    res.status(404).json({ error: 'Activity not found' });
+    return;
+  }
+
+  if (req.user!.role !== 'admin' && existing.technician_id !== req.user!.id) {
+    res.status(403).json({ error: 'Not authorized' });
+    return;
+  }
+
+  if (!existing.paused_at) {
+    res.status(409).json({ error: 'Activity is not paused' });
+    return;
+  }
+
+  const updated = await queryOne<{ total_pause_minutes: number }>(
+    `UPDATE activities
+     SET total_pause_minutes = COALESCE(total_pause_minutes, 0) +
+           ROUND(EXTRACT(EPOCH FROM (NOW() - paused_at)) / 60),
+         paused_at = NULL
+     WHERE id = $1
+     RETURNING total_pause_minutes`,
+    [activityId]
+  );
+
+  res.json(updated);
+});
+
+router.put('/:id/finish', async (req: Request, res: Response): Promise<void> => {
+  const {
+    notes,
+    diagnosis_result,
+    diagnosis_checklist,
+    total_pause_minutes: clientPauseMinutes,
+  } = req.body as {
+    notes?: string;
+    diagnosis_result?: string;
+    diagnosis_checklist?: boolean[];
+    total_pause_minutes?: number;
+  };
+  const activityId = parseInt(req.params.id, 10);
+
+  const existing = await queryOne<{
+    id: number;
+    technician_id: number;
+    started_at: Date;
+    is_diagnosis: boolean;
+    total_pause_minutes: number;
+  }>(
+    'SELECT id, technician_id, started_at, is_diagnosis, total_pause_minutes FROM activities WHERE id = $1',
     [activityId]
   );
 
@@ -216,15 +309,32 @@ router.put('/:id/finish', async (req: Request, res: Response): Promise<void> => 
     return;
   }
 
+  // For diagnosis: subtract pause minutes from total elapsed
+  const pauseMinutes = existing.is_diagnosis
+    ? Math.max(0, clientPauseMinutes ?? existing.total_pause_minutes ?? 0)
+    : 0;
+
   const updated = await queryOne(
     `UPDATE activities
      SET finished_at = NOW(),
          status = 'completed',
-         duration_minutes = EXTRACT(EPOCH FROM (NOW() - started_at)) / 60,
-         notes = COALESCE($2, notes)
+         duration_minutes = GREATEST(0,
+           ROUND(EXTRACT(EPOCH FROM (NOW() - started_at)) / 60) - $3
+         ),
+         notes = COALESCE($2, notes),
+         diagnosis_result    = COALESCE($4, diagnosis_result),
+         diagnosis_checklist = COALESCE($5, diagnosis_checklist),
+         total_pause_minutes = $3,
+         paused_at = NULL
      WHERE id = $1
      RETURNING *`,
-    [activityId, notes ?? null]
+    [
+      activityId,
+      notes ?? null,
+      pauseMinutes,
+      diagnosis_result ?? null,
+      diagnosis_checklist ? JSON.stringify(diagnosis_checklist) : null,
+    ]
   );
 
   res.json(updated);
@@ -300,6 +410,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     date_to,
     status,
     method,
+    activity_type,
   } = req.query as Record<string, string>;
 
   // Non-admin technicians only see their own activities
@@ -333,6 +444,11 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
   if (method) {
     conditions.push(`a.method = $${paramIdx++}`);
     params.push(method);
+  }
+  if (activity_type === 'diagnosis') {
+    conditions.push(`a.is_diagnosis = TRUE`);
+  } else if (activity_type === 'normal') {
+    conditions.push(`(a.is_diagnosis = FALSE OR a.is_diagnosis IS NULL)`);
   }
 
   const rows = await query(

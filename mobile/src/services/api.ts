@@ -84,8 +84,44 @@ export async function startActivity(data: {
   return res.data;
 }
 
+export async function startDiagnosisActivity(data: {
+  org_id?: number;
+  machine_id?: number;
+}): Promise<Activity> {
+  const res = await api.post<Activity>('/activities', {
+    ...data,
+    method: 'diagnosis',
+    is_diagnosis: true,
+    connectivity_issue: true,
+  });
+  return res.data;
+}
+
+export async function pauseActivity(id: number): Promise<{ paused_at: string }> {
+  const res = await api.put<{ paused_at: string }>(`/activities/${id}/pause`);
+  return res.data;
+}
+
+export async function resumeActivity(id: number): Promise<{ total_pause_minutes: number }> {
+  const res = await api.put<{ total_pause_minutes: number }>(`/activities/${id}/resume`);
+  return res.data;
+}
+
 export async function finishActivity(id: number, notes?: string): Promise<Activity> {
   const res = await api.put<Activity>(`/activities/${id}/finish`, { notes });
+  return res.data;
+}
+
+export async function finishDiagnosisActivity(
+  id: number,
+  data: {
+    diagnosis_result: string;
+    diagnosis_checklist: boolean[];
+    total_pause_minutes: number;
+    notes?: string;
+  }
+): Promise<Activity> {
+  const res = await api.put<Activity>(`/activities/${id}/finish`, data);
   return res.data;
 }
 

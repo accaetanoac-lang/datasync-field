@@ -22,6 +22,7 @@ export default function DashboardPage() {
   const [visits, setVisits] = useState<FieldVisitNoCollection[]>([]);
   const [liveActivities, setLiveActivities] = useState<Activity[]>([]);
   const [visitData, setVisitData] = useState<VisitManagement[]>([]);
+  const [diagnosisActivities, setDiagnosisActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -35,7 +36,13 @@ export default function DashboardPage() {
       api.get<VisitManagement[]>('/visits/management', {
         params: { from: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString() },
       }),
-    ]).then(([sum, bi, tech, orgs, v, live, vm]) => {
+      api.get<Activity[]>('/activities', {
+        params: {
+          activity_type: 'diagnosis',
+          date_from: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+        },
+      }),
+    ]).then(([sum, bi, tech, orgs, v, live, vm, diag]) => {
       // Normalize summary so nested properties are always defined
       const raw = sum.data as Partial<SummaryStats> | null | undefined;
       setSummary({
@@ -58,6 +65,7 @@ export default function DashboardPage() {
       setVisits(Array.isArray(v.data) ? v.data : []);
       setLiveActivities(Array.isArray(live.data) ? live.data : []);
       setVisitData(Array.isArray(vm.data) ? vm.data : []);
+      setDiagnosisActivities(Array.isArray(diag.data) ? diag.data : []);
     }).catch(console.error)
       .finally(() => setLoading(false));
   }, []);
@@ -160,6 +168,63 @@ export default function DashboardPage() {
           <StatCard title="61–365 dias offline" value={summary.machines.range_61_365} color="text-red-600" />
           <StatCard title="365+ dias offline" value={summary.machines.range_365plus} color="text-gray-900" />
         </div>
+
+        {/* Connectivity diagnostics KPI */}
+        {diagnosisActivities.length > 0 && (() => {
+          const uniqueMachines = Array.from(
+            new Map(
+              diagnosisActivities
+                .filter((a) => a.machine_pin ?? a.machine_custom_name)
+                .map((a) => [
+                  a.machine_pin ?? a.machine_custom_name,
+                  { pin: a.machine_pin ?? a.machine_custom_name ?? '—', org: a.org_name ?? '—', result: a.diagnosis_result },
+                ])
+            ).values()
+          ).slice(0, 10);
+
+          return (
+            <div className="mb-6 bg-orange-50 border border-orange-200 rounded-xl p-5">
+              <div className="flex items-center gap-3 mb-3">
+                <span className="text-2xl">🔧</span>
+                <div>
+                  <p className="font-bold text-orange-800 text-base">
+                    {diagnosisActivities.length} diagnóstico{diagnosisActivities.length !== 1 ? 's' : ''} de conectividade — últimos 30 dias
+                  </p>
+                  <p className="text-orange-700 text-sm mt-0.5">
+                    Máquinas com problema de conectividade identificado
+                  </p>
+                </div>
+              </div>
+              {uniqueMachines.length > 0 && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-orange-200">
+                        <th className="text-left py-2 text-orange-700 font-medium">Máquina</th>
+                        <th className="text-left py-2 text-orange-700 font-medium">Fazenda</th>
+                        <th className="text-left py-2 text-orange-700 font-medium">Último resultado</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {uniqueMachines.map((m, i) => (
+                        <tr key={i} className="border-b border-orange-100">
+                          <td className="py-1.5 font-mono text-xs text-gray-700">{m.pin}</td>
+                          <td className="py-1.5 text-gray-700">{m.org}</td>
+                          <td className="py-1.5">
+                            {m.result === 'resolved'    && <span className="text-green-700 font-medium">✅ Restabelecida</span>}
+                            {m.result === 'needs_return'&& <span className="text-yellow-700 font-medium">🔄 Requer retorno</span>}
+                            {m.result === 'unidentified'&& <span className="text-red-700 font-medium">❌ Não identificado</span>}
+                            {!m.result && <span className="text-gray-400">Em diagnóstico</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          );
+        })()}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <ConnectivityPie stats={summary} />
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">

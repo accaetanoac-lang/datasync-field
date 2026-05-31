@@ -54,6 +54,13 @@ export interface Activity {
   photo_url?: string;
   pre_signed_photo_url?: string;
   photo_taken_at?: string;
+  // Diagnosis fields
+  is_diagnosis?: boolean;
+  diagnosis_result?: 'resolved' | 'needs_return' | 'unidentified';
+  diagnosis_checklist?: boolean[];
+  connectivity_issue?: boolean;
+  total_pause_minutes?: number;
+  paused_at?: string;
 }
 
 export interface BiRow {

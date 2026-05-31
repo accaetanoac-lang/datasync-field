@@ -19,6 +19,7 @@ export default function ActivitiesPage() {
     date_to: '',
     status: '',
     method: '',
+    activity_type: '',
   });
 
   const load = useCallback(async () => {
@@ -61,12 +62,19 @@ export default function ActivitiesPage() {
   const METHOD_LABEL: Record<string, string> = {
     starlink_data_sync: 'Starlink + Data Sync',
     pen_drive: 'Pen Drive',
+    diagnosis: 'Diagnóstico',
   };
 
   const STATUS_COLORS: Record<string, string> = {
     completed: 'bg-green-100 text-green-700',
     in_progress: 'bg-blue-100 text-blue-700',
     no_use: 'bg-gray-100 text-gray-600',
+  };
+
+  const DIAGNOSIS_RESULT_LABEL: Record<string, { label: string; color: string }> = {
+    resolved:    { label: '✅ Restabelecida',    color: 'bg-green-100 text-green-700' },
+    needs_return:{ label: '🔄 Requer retorno',   color: 'bg-yellow-100 text-yellow-700' },
+    unidentified:{ label: '❌ Não identificado', color: 'bg-red-100 text-red-700' },
   };
 
   const inProgressCount = activities.filter((a) => a.status === 'in_progress').length;
@@ -157,6 +165,15 @@ export default function ActivitiesPage() {
           <option value="starlink_data_sync">Starlink + Data Sync</option>
           <option value="pen_drive">Pen Drive</option>
         </select>
+        <select
+          value={filters.activity_type}
+          onChange={(e) => setFilters((f) => ({ ...f, activity_type: e.target.value }))}
+          className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-jd-green"
+        >
+          <option value="">Todos os tipos</option>
+          <option value="diagnosis">🔧 Diagnósticos</option>
+          <option value="normal">📡 Coletas normais</option>
+        </select>
         <button
           onClick={load}
           className="col-span-2 md:col-span-1 bg-jd-green text-white text-sm font-semibold px-4 py-2 rounded-lg hover:bg-green-700"
@@ -176,7 +193,7 @@ export default function ActivitiesPage() {
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-100">
                 <tr>
-                  {['Data', 'Técnico', 'Fazenda', 'Máquina', 'Método', 'Hor. Inf.', 'Diff h', 'Duração', 'Status', 'Foto', 'OS'].map((h) => (
+                  {['Data', 'Tipo', 'Técnico', 'Fazenda', 'Máquina', 'Método', 'Hor. Inf.', 'Diff h', 'Duração', 'Status', 'Resultado', 'Foto', 'OS'].map((h) => (
                     <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
                       {h}
                     </th>
@@ -195,6 +212,11 @@ export default function ActivitiesPage() {
                   >
                     <td className="px-4 py-3 text-gray-600">
                       {new Date(a.created_at).toLocaleDateString('pt-BR')}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap ${a.is_diagnosis ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>
+                        {a.is_diagnosis ? '🔧 Diagnóstico' : '📡 Coleta'}
+                      </span>
                     </td>
                     <td className="px-4 py-3">
                       <div className="font-medium text-gray-900">{a.technician_name}</div>
@@ -223,6 +245,15 @@ export default function ActivitiesPage() {
                         )}
                         {a.status}
                       </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      {a.is_diagnosis && a.diagnosis_result ? (
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${DIAGNOSIS_RESULT_LABEL[a.diagnosis_result]?.color ?? 'bg-gray-100 text-gray-500'}`}>
+                          {DIAGNOSIS_RESULT_LABEL[a.diagnosis_result]?.label ?? a.diagnosis_result}
+                        </span>
+                      ) : (
+                        <span className="text-gray-400 text-xs">—</span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       {a.photo_url ? (
@@ -259,7 +290,7 @@ export default function ActivitiesPage() {
                 ))}
                 {activities.length === 0 && (
                   <tr>
-                    <td colSpan={11} className="px-4 py-8 text-center text-gray-400">
+                    <td colSpan={13} className="px-4 py-8 text-center text-gray-400">
                       Nenhuma atividade encontrada.
                     </td>
                   </tr>
