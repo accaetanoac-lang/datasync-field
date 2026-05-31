@@ -11,10 +11,13 @@ router.use(authMiddleware);
 
 const BUCKET = 'datasync-field-uploads-496795891165';
 
-// getSignedUrl is synchronous in SDK v2 for simple GETs — no await needed.
-function presign(s3: AWS.S3, photoUrl: string): string {
+// getSignedUrl is nominally synchronous in SDK v2, but container credentials
+// (AWS_CONTAINER_CREDENTIALS_RELATIVE_URI) are resolved lazily and may not be
+// cached yet on the first call, causing it to silently return a stub URL.
+// getSignedUrlPromise() properly awaits credential resolution before signing.
+async function presign(s3: AWS.S3, photoUrl: string): Promise<string> {
   const key = new URL(photoUrl).pathname.slice(1); // strip leading /
-  return s3.getSignedUrl('getObject', { Bucket: BUCKET, Key: key, Expires: 3600 });
+  return s3.getSignedUrlPromise('getObject', { Bucket: BUCKET, Key: key, Expires: 3600 });
 }
 
 const photoUpload = multer({
@@ -187,7 +190,7 @@ router.post('/:id/photo', (req: Request, res: Response, next: NextFunction): voi
       [photoUrl, activityId]
     );
 
-    res.json({ photo_url: photoUrl, pre_signed_photo_url: presign(s3, photoUrl) });
+    res.json({ photo_url: photoUrl, pre_signed_photo_url: await presign(s3, photoUrl) });
   } catch (error) {
     console.error('Photo upload error:', error);
     next(error);
@@ -351,10 +354,12 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
   );
 
   const s3 = new AWS.S3({ region: process.env.AWS_REGION ?? 'us-east-1' });
-  const result = (rows as Record<string, unknown>[]).map((row) =>
-    row.photo_url
-      ? { ...row, pre_signed_photo_url: presign(s3, row.photo_url as string) }
-      : row
+  const result = await Promise.all(
+    (rows as Record<string, unknown>[]).map(async (row) =>
+      row.photo_url
+        ? { ...row, pre_signed_photo_url: await presign(s3, row.photo_url as string) }
+        : row
+    )
   );
   res.json(result);
 });
@@ -388,7 +393,7 @@ router.get('/:id/report', async (req: Request, res: Response): Promise<void> => 
 
   const s3 = new AWS.S3({ region: process.env.AWS_REGION ?? 'us-east-1' });
   const enriched = (activity as Record<string, unknown>).photo_url
-    ? { ...activity, pre_signed_photo_url: presign(s3, (activity as Record<string, unknown>).photo_url as string) }
+    ? { ...activity, pre_signed_photo_url: await presign(s3, (activity as Record<string, unknown>).photo_url as string) }
     : activity;
   res.json(enriched);
 });
