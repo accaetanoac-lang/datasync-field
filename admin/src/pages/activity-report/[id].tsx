@@ -156,7 +156,7 @@ export default function ActivityReportPage() {
             label="Coordenadas"
             value={
               report.tech_lat != null && report.tech_lng != null
-                ? `${report.tech_lat.toFixed(6)}, ${report.tech_lng.toFixed(6)}`
+                ? `${Number(report.tech_lat).toFixed(6)}, ${Number(report.tech_lng).toFixed(6)}`
                 : '—'
             }
           />
