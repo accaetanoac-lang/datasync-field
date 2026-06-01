@@ -2,7 +2,7 @@
   "expo": {
     "name": "DataSync Field",
     "slug": "datasync-field",
-    "version": "1.0.0",
+    "version": "2.2.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -10,6 +10,15 @@
       "image": "./assets/splash.png",
       "resizeMode": "contain",
       "backgroundColor": "#367C2B"
+    },
+    "updates": {
+      "enabled": true,
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0,
+      "url": "https://u.expo.dev/ee547311-b614-4bf5-981a-9f127f7ff445"
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
     },
     "ios": {
       "supportsTablet": false,

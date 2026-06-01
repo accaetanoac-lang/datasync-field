@@ -1,8 +1,11 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { Alert, Linking } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import * as Location from 'expo-location';
-import { login as apiLogin, sendPushToken } from '../services/api';
+import * as Updates from 'expo-updates';
+import Constants from 'expo-constants';
+import api, { login as apiLogin, sendPushToken } from '../services/api';
 import { registerBackgroundTask } from '../services/backgroundLocation';
 import { Technician } from '../types';
 
@@ -24,6 +27,77 @@ interface AuthContextValue extends AuthState {
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+
+function isVersionLess(a: string, b: string): boolean {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const na = pa[i] ?? 0;
+    const nb = pb[i] ?? 0;
+    if (na < nb) return true;
+    if (na > nb) return false;
+  }
+  return false;
+}
+
+async function checkForOTAUpdate(): Promise<void> {
+  try {
+    const update = await Updates.checkForUpdateAsync();
+    if (update.isAvailable) {
+      await Updates.fetchUpdateAsync();
+      await Updates.reloadAsync();
+    }
+  } catch (e) {
+    console.log('OTA check failed:', e);
+  }
+}
+
+async function checkAppVersion(): Promise<void> {
+  try {
+    const res = await api.get<{
+      current_version: string;
+      min_required_version: string;
+      update_url: string;
+      update_message: string;
+      force_update: boolean;
+    }>('/version');
+
+    const { current_version, min_required_version, update_url, update_message, force_update } = res.data;
+    const appVersion = Constants.expoConfig?.version ?? '0.0.0';
+
+    if (isVersionLess(appVersion, min_required_version)) {
+      Alert.alert(
+        'Atualização Obrigatória',
+        update_message,
+        [{ text: 'Baixar Atualização', onPress: () => Linking.openURL(update_url) }],
+        { cancelable: false }
+      );
+      return;
+    }
+
+    if (isVersionLess(appVersion, current_version)) {
+      if (force_update) {
+        Alert.alert(
+          'Atualização Obrigatória',
+          update_message,
+          [{ text: 'Baixar Atualização', onPress: () => Linking.openURL(update_url) }],
+          { cancelable: false }
+        );
+      } else {
+        Alert.alert(
+          'Atualização Disponível',
+          update_message,
+          [
+            { text: 'Agora', onPress: () => Linking.openURL(update_url) },
+            { text: 'Depois', style: 'cancel' },
+          ]
+        );
+      }
+    }
+  } catch (e) {
+    console.log('Version check failed:', e);
+  }
+}
 
 async function setupNotifications(): Promise<void> {
   try {
@@ -54,8 +128,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loading: true,
   });
 
-  // On startup: restore session only when BOTH token and technician are present
+  // On startup: check for OTA updates and restore session
   useEffect(() => {
+    checkForOTAUpdate();
+
     (async () => {
       try {
         const token = await AsyncStorage.getItem(TOKEN_KEY);
@@ -84,6 +160,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setState({ token, technician, isAuthenticated: true, loading: false });
     // Request permissions and register push token without blocking navigation
     setupNotifications().catch(() => {});
+    // Check if app needs an update
+    checkAppVersion().catch(() => {});
   };
 
   // Clears all auth state from storage and memory — forces back to LoginScreen
