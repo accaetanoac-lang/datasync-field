@@ -109,13 +109,14 @@ export default function DashboardPage() {
   if (!summary) return <div className="text-red-500">Erro ao carregar dados.</div>;
 
   // Indicator 18 calculations
+  // 18.1 denominator: orgs with at least 1 machine whose last_call_date is not null (JD spec)
+  const orgsWithConnectedMachines = biData.filter((r) => (r.connected_machines_count ?? 0) > 0);
+  const basicTechPct = orgsWithConnectedMachines.length
+    ? (orgsWithConnectedMachines.filter((r) => r.vca_setup_file === true && r.vca_equipment_monitoring === true).length / orgsWithConnectedMachines.length) * 100
+    : 0;
   const orgsWithData = biData.filter((r) => r.vca_setup_file !== undefined);
-  const basicTechPct = orgsWithData.length
-    ? (orgsWithData.filter((r) => r.vca_setup_file || r.vca_equipment_monitoring).length / orgsWithData.length) * 100
-    : 0;
-  const advTechPct = orgsWithData.length
-    ? (orgsWithData.filter((r) => r.vca_work_plan || r.vca_agronomic_reports || r.vca_work_details).length / orgsWithData.length) * 100
-    : 0;
+  const advOrgCount = orgsWithData.filter((r) => r.vca_work_plan || r.vca_agronomic_reports || r.vca_work_details).length;
+  const advTechPct  = orgsWithData.length ? (advOrgCount / orgsWithData.length) * 100 : 0;
 
   const totalMaxHarvest = biData.reduce((a, r) => a + (r.max_harvest ?? 0), 0);
   const totalYtdHarvest = biData.reduce((a, r) => a + (r.ytd_harvest ?? 0), 0);
@@ -300,10 +301,10 @@ export default function DashboardPage() {
             thresholds="🔴<45% 🟡45-58% 🟢58-65% 🟢🟢>65%"
           />
           <Semaphore
-            level={getSemaphoreLevel(advTechPct, [10, 20, 30])}
+            level={getSemaphoreLevel(advTechPct, [8, 16, 20])}
             label="18.2 Advanced Tech"
-            value={`${advTechPct.toFixed(1)}%`}
-            thresholds="🔴<10% 🟡10-20% 🟢10-30% 🟢🟢>30%"
+            value={`${advOrgCount} org${advOrgCount !== 1 ? 's' : ''} = ${advTechPct.toFixed(1)}%`}
+            thresholds="🔴<8% 🟡8-16% 🟢16-20% 🟢🟢>20%"
           />
           <Semaphore
             level={getSemaphoreLevel(harvestPct, [30, 60, 80])}
