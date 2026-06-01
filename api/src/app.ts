@@ -12,6 +12,7 @@ import visitsRouter from './routes/visits';
 import techniciansRouter from './routes/technicians';
 import versionRouter from './routes/version';
 import impedimentsRouter from './routes/impediments';
+import nonJdMachinesRouter from './routes/nonJdMachines';
 
 dotenv.config();
 
@@ -70,6 +71,8 @@ app.use('/api/visits', visitsRouter);
 app.use('/api/technicians', techniciansRouter);
 app.use('/api/version', versionRouter);
 app.use('/api/impediments', impedimentsRouter);
+app.use('/non-jd-machines', nonJdMachinesRouter);
+app.use('/api/non-jd-machines', nonJdMachinesRouter);
 
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not found' });

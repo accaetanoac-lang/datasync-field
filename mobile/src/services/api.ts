@@ -230,6 +230,32 @@ export async function sendGeofence(
   return res.data;
 }
 
+// Non-JD machine registry
+export async function searchNonJdMachine(serial: string): Promise<{
+  found: boolean;
+  machine: { id: number; serial_number?: string; custom_name: string; brand?: string; model?: string; description?: string; org_names?: string[] } | null;
+}> {
+  const res = await api.get('/non-jd-machines', { params: { serial } });
+  return res.data;
+}
+
+export async function registerNonJdMachine(data: {
+  serial_number?: string;
+  custom_name: string;
+  brand?: string;
+  model?: string;
+  description?: string;
+  org_id?: number;
+}): Promise<{ id: number; machine_id: number; custom_name: string; serial_number?: string; brand?: string; model?: string }> {
+  const res = await api.post('/non-jd-machines', data);
+  return res.data;
+}
+
+export async function getNonJdMachinesForOrg(orgId: number): Promise<{ id: number; custom_name: string; brand?: string; model?: string; serial_number?: string }[]> {
+  const res = await api.get('/non-jd-machines', { params: { org_id: orgId } });
+  return Array.isArray(res.data) ? res.data : [];
+}
+
 // Impediments
 export async function recordImpediment(machineId: number, data: {
   reason: string;

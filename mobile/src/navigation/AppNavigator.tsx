@@ -70,7 +70,18 @@ export type RootStackParamList = {
     org: Organization;
     currentHours: number;
   };
-  NonJDMachine: { org?: Organization; prefillPin?: string };
+  NonJDMachine: {
+    org?: Organization;
+    prefillPin?: string;
+    prefillNonJd?: {
+      id: number;
+      serial_number?: string;
+      custom_name: string;
+      brand?: string;
+      model?: string;
+      description?: string;
+    };
+  };
   CannotAct: { machine: Machine; org: Organization };
 };
 

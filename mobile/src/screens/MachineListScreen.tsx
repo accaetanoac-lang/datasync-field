@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { useNavigation, useRoute, RouteProp, useFocusEffect } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
-import { getOrgMachines } from '../services/api';
+import { getOrgMachines, getNonJdMachinesForOrg } from '../services/api';
 import { getCachedMachines, setCachedMachines } from '../services/sync';
 import { Machine, getOfflineBadge, formatDaysOffline } from '../types';
 import { RootStackParamList } from '../navigation/AppNavigator';
@@ -21,7 +21,8 @@ export default function MachineListScreen() {
   const route = useRoute<Route>();
   const { org } = route.params;
 
-  const [machines, setMachines] = useState<Machine[]>([]);
+  const [machines, setMachines]       = useState<Machine[]>([]);
+  const [nonJdMachines, setNonJdMachines] = useState<{ id: number; custom_name: string; brand?: string; model?: string; serial_number?: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -55,6 +56,7 @@ export default function MachineListScreen() {
       prevMachineIds.current = new Set(data.map((m) => m.id));
       setMachines(data);
       await setCachedMachines(org.id, data);
+      getNonJdMachinesForOrg(org.id).then(setNonJdMachines).catch(() => {});
     } catch {
       const cached = await getCachedMachines(org.id);
       if (cached) {
@@ -132,12 +134,45 @@ export default function MachineListScreen() {
             </TouchableOpacity>
           )}
           ListFooterComponent={
-            <TouchableOpacity
-              style={styles.addButton}
-              onPress={() => navigation.navigate('NonJDMachine', { org })}
-            >
-              <Text style={styles.addButtonText}>+ Adicionar máquina não-JD</Text>
-            </TouchableOpacity>
+            <View>
+              {nonJdMachines.length > 0 && (
+                <View style={styles.nonJdSection}>
+                  <Text style={styles.nonJdSectionTitle}>Máquinas Não JD cadastradas nesta organização</Text>
+                  {nonJdMachines.map((m) => (
+                    <TouchableOpacity
+                      key={m.id}
+                      style={styles.nonJdCard}
+                      onPress={() => navigation.navigate('NonJDMachine', {
+                        org,
+                        prefillNonJd: {
+                          id: m.id,
+                          serial_number: m.serial_number,
+                          custom_name: m.custom_name,
+                          brand: m.brand,
+                          model: m.model,
+                        },
+                      })}
+                    >
+                      <Text style={styles.nonJdName}>{m.custom_name}</Text>
+                      {(m.brand || m.model) && (
+                        <Text style={styles.nonJdDetail}>
+                          {[m.brand, m.model].filter(Boolean).join(' · ')}
+                        </Text>
+                      )}
+                      {m.serial_number && (
+                        <Text style={styles.nonJdSerial}>{m.serial_number}</Text>
+                      )}
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+              <TouchableOpacity
+                style={styles.addButton}
+                onPress={() => navigation.navigate('NonJDMachine', { org })}
+              >
+                <Text style={styles.addButtonText}>+ Adicionar máquina não-JD</Text>
+              </TouchableOpacity>
+            </View>
           }
         />
       )}
@@ -181,6 +216,16 @@ const styles = StyleSheet.create({
     margin: 8,
   },
   addButtonText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+
+  nonJdSection: { marginHorizontal: 8, marginTop: 12, marginBottom: 4 },
+  nonJdSectionTitle: { fontSize: 13, fontWeight: '700', color: '#6b7280', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 },
+  nonJdCard: {
+    backgroundColor: '#fff', borderRadius: 8, padding: 12, marginBottom: 6,
+    borderWidth: 1, borderColor: '#e5e7eb',
+  },
+  nonJdName:   { fontSize: 15, fontWeight: '700', color: '#1a1a1a' },
+  nonJdDetail: { fontSize: 13, color: '#6b7280', marginTop: 2 },
+  nonJdSerial: { fontSize: 11, color: '#9ca3af', fontFamily: 'monospace', marginTop: 2 },
   toast: {
     position: 'absolute',
     bottom: 24,

@@ -24,6 +24,7 @@ export default function DashboardPage() {
   const [visitData, setVisitData] = useState<VisitManagement[]>([]);
   const [diagnosisActivities, setDiagnosisActivities] = useState<Activity[]>([]);
   const [impediments, setImpediments] = useState<Impediment[]>([]);
+  const [nonJdCount, setNonJdCount]   = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -74,6 +75,10 @@ export default function DashboardPage() {
     api.get<Impediment[]>('/impediments', { params: { from: from30d } })
       .then((r) => setImpediments(Array.isArray(r.data) ? r.data : []))
       .catch(() => setImpediments([]));
+
+    api.get<{ id: number }[]>('/non-jd-machines')
+      .then((r) => setNonJdCount(Array.isArray(r.data) ? r.data.length : 0))
+      .catch(() => setNonJdCount(0));
   }, []);
 
   const refreshLive = useCallback(async () => {
@@ -534,7 +539,20 @@ export default function DashboardPage() {
         )}
       </section>
 
-      {/* Bloco 5 — Impedimentos */}
+      {/* Bloco 5 — Máquinas Não-JD KPI */}
+      {nonJdCount > 0 && (
+        <section>
+          <div className="bg-white border border-gray-100 rounded-xl p-5 shadow-sm flex items-center gap-4 max-w-xs">
+            <span className="text-3xl">🚜</span>
+            <div>
+              <p className="text-2xl font-bold text-gray-900">{nonJdCount}</p>
+              <p className="text-sm text-gray-500">máquina{nonJdCount !== 1 ? 's' : ''} não-JD cadastrada{nonJdCount !== 1 ? 's' : ''}</p>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* Bloco 6 — Impedimentos */}
       {impediments.length > 0 && (() => {
         const REASON_LABELS: Record<string, string> = {
           maintenance:  'Em manutenção',
