@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
-  ScrollView, Alert, ActivityIndicator, AppState, AppStateStatus,
+  ScrollView, Alert, ActivityIndicator, AppState, AppStateStatus, TextInput,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
@@ -16,6 +16,12 @@ type Route = RouteProp<RootStackParamList, 'ConnectivityCheck'>;
 const JD_GREEN  = '#367C2B';
 const JD_YELLOW = '#FFDE00';
 
+const CONNECTED_CAUSES = [
+  'Máquina não foi ligada neste período',
+  'Sem sinal de internet na localização (resolvido com Starlink)',
+  'Reinício do sistema resolveu o problema',
+];
+
 function pad(n: number) { return String(n).padStart(2, '0'); }
 function formatElapsed(s: number) {
   return `${pad(Math.floor(s / 3600))}:${pad(Math.floor((s % 3600) / 60))}:${pad(s % 60)}`;
@@ -26,8 +32,12 @@ export default function ConnectivityCheckScreen() {
   const route = useRoute<Route>();
   const { machine, org, currentHours, hoursDiff, activityId, startedAt } = route.params;
 
-  const [elapsed, setElapsed]       = useState(0);
-  const [takingPhoto, setTakingPhoto] = useState(false);
+  const [elapsed, setElapsed]             = useState(0);
+  const [takingPhoto, setTakingPhoto]     = useState(false);
+  const [showCauses, setShowCauses]       = useState(false);
+  const [causesChecklist, setCausesChecklist] = useState<boolean[]>(new Array(3).fill(false));
+  const [outrosChecked, setOutrosChecked] = useState(false);
+  const [outrosText, setOutrosText]       = useState('');
 
   const startTsRef  = useRef(Date.parse(startedAt));
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -95,16 +105,22 @@ export default function ConnectivityCheckScreen() {
     navigation.navigate('Diagnosis', { machine, org, currentHours, hoursDiff, activityId, startedAt, initialStep: 'step2c' });
   };
 
+  const toggleCause = (i: number) => {
+    const next = [...causesChecklist];
+    next[i] = !next[i];
+    setCausesChecklist(next);
+  };
+
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
 
       {/* Machine info */}
       <View style={styles.machineCard}>
         <Text style={styles.cardTitle}>Informações da Máquina</Text>
-        <InfoRow label="Chassi / PIN"   value={machine.pin ?? machine.custom_name ?? 'N/A'} />
-        <InfoRow label="Dias offline"   value={formatDaysOffline(machine.days_offline)} valueStyle={styles.yellowText} />
+        <InfoRow label="Chassi / PIN"    value={machine.pin ?? machine.custom_name ?? 'N/A'} />
+        <InfoRow label="Dias offline"    value={formatDaysOffline(machine.days_offline)} valueStyle={styles.yellowText} />
         <InfoRow label="Horímetro atual" value={`${currentHours} h`} />
-        <InfoRow label="Diferença"      value={`${hoursDiff.toFixed(1)} h`} />
+        <InfoRow label="Diferença"       value={`${hoursDiff.toFixed(1)} h`} />
       </View>
 
       {/* Timer */}
@@ -122,37 +138,101 @@ export default function ConnectivityCheckScreen() {
       </View>
 
       {/* A — Connected */}
-      <TouchableOpacity
-        style={[styles.connectedBtn, takingPhoto && styles.btnDisabled]}
-        onPress={handleConnected}
-        disabled={takingPhoto}
-        activeOpacity={0.85}
-      >
-        {takingPhoto
-          ? <ActivityIndicator color="#fff" />
-          : <Text style={styles.btnText}>Máquina conectou!</Text>}
-      </TouchableOpacity>
-      <Text style={styles.btnHint}>Você será solicitado a fotografar o símbolo de conexão no painel</Text>
+      {!showCauses ? (
+        <>
+          <TouchableOpacity
+            style={[styles.connectedBtn, takingPhoto && styles.btnDisabled]}
+            onPress={() => setShowCauses(true)}
+            disabled={takingPhoto}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.btnText}>Máquina conectou!</Text>
+          </TouchableOpacity>
+          <Text style={styles.btnHint}>Você identificará as causas e fotografará o painel</Text>
 
-      {/* B — Not connected */}
-      <TouchableOpacity
-        style={[styles.notConnectedBtn, takingPhoto && styles.btnDisabled]}
-        onPress={handleNotConnected}
-        disabled={takingPhoto}
-        activeOpacity={0.85}
-      >
-        <Text style={styles.btnText}>Não foi possível conectar</Text>
-      </TouchableOpacity>
+          {/* B — Not connected */}
+          <TouchableOpacity
+            style={[styles.notConnectedBtn, takingPhoto && styles.btnDisabled]}
+            onPress={handleNotConnected}
+            disabled={takingPhoto}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.btnText}>Não foi possível conectar</Text>
+          </TouchableOpacity>
 
-      {/* C — No modem */}
-      <TouchableOpacity
-        style={[styles.noModemBtn, takingPhoto && styles.btnDisabled]}
-        onPress={handleNoModem}
-        disabled={takingPhoto}
-        activeOpacity={0.85}
-      >
-        <Text style={styles.btnText}>Sem modem JDLink instalado</Text>
-      </TouchableOpacity>
+          {/* C — No modem */}
+          <TouchableOpacity
+            style={[styles.noModemBtn, takingPhoto && styles.btnDisabled]}
+            onPress={handleNoModem}
+            disabled={takingPhoto}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.btnText}>Sem modem JDLink instalado</Text>
+          </TouchableOpacity>
+        </>
+      ) : (
+        /* Causes checklist — shown after "Máquina conectou!" */
+        <View style={styles.causesCard}>
+          <Text style={styles.causesTitle}>✅ Máquina conectada</Text>
+          <Text style={styles.causesSubtitle}>Por que estava sem conexão? Marque as causas identificadas:</Text>
+
+          {CONNECTED_CAUSES.map((item, i) => (
+            <TouchableOpacity
+              key={i}
+              style={styles.checkItem}
+              onPress={() => toggleCause(i)}
+            >
+              <View style={[styles.checkbox, causesChecklist[i] && styles.checkboxChecked]}>
+                {causesChecklist[i] && <Text style={styles.checkmark}>✓</Text>}
+              </View>
+              <Text style={[styles.checkLabel, causesChecklist[i] && styles.checkLabelChecked]}>
+                {item}
+              </Text>
+            </TouchableOpacity>
+          ))}
+
+          {/* Outros */}
+          <TouchableOpacity
+            style={styles.checkItem}
+            onPress={() => setOutrosChecked(!outrosChecked)}
+          >
+            <View style={[styles.checkbox, outrosChecked && styles.checkboxChecked]}>
+              {outrosChecked && <Text style={styles.checkmark}>✓</Text>}
+            </View>
+            <Text style={[styles.checkLabel, outrosChecked && styles.checkLabelChecked]}>Outros</Text>
+          </TouchableOpacity>
+          {outrosChecked && (
+            <TextInput
+              style={styles.outrosInput}
+              value={outrosText}
+              onChangeText={setOutrosText}
+              placeholder="Descreva a causa"
+              placeholderTextColor="#aaa"
+            />
+          )}
+
+          {/* Photo button */}
+          <TouchableOpacity
+            style={[styles.photoBtn, takingPhoto && styles.btnDisabled]}
+            onPress={handleConnected}
+            disabled={takingPhoto}
+            activeOpacity={0.85}
+          >
+            {takingPhoto
+              ? <ActivityIndicator color="#fff" />
+              : <Text style={styles.btnText}>📷 Fotografar painel mostrando conexão</Text>}
+          </TouchableOpacity>
+          <Text style={styles.btnHint}>Fotografe o símbolo de conexão ativo no painel</Text>
+
+          {/* Back */}
+          <TouchableOpacity
+            style={styles.backBtn}
+            onPress={() => { setShowCauses(false); setCausesChecklist(new Array(3).fill(false)); setOutrosChecked(false); setOutrosText(''); }}
+          >
+            <Text style={styles.backBtnText}>Voltar</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
     </ScrollView>
   );
@@ -195,7 +275,37 @@ const styles = StyleSheet.create({
   btnText:        { color: '#fff', fontWeight: '700', fontSize: 16 },
   btnDisabled:    { opacity: 0.5 },
   btnHint:        { textAlign: 'center', fontSize: 12, color: '#6b7280', marginTop: -4 },
-  connectedBtn:   { backgroundColor: JD_GREEN, borderRadius: 12, padding: 18, alignItems: 'center' },
+  connectedBtn:   { backgroundColor: JD_GREEN,  borderRadius: 12, padding: 18, alignItems: 'center' },
   notConnectedBtn:{ backgroundColor: '#1a1a1a', borderRadius: 12, padding: 18, alignItems: 'center' },
   noModemBtn:     { backgroundColor: '#1D4ED8', borderRadius: 12, padding: 18, alignItems: 'center' },
+
+  causesCard: {
+    backgroundColor: '#F0FDF4', borderRadius: 12, padding: 16, gap: 10,
+    borderWidth: 1.5, borderColor: '#86EFAC',
+  },
+  causesTitle:    { fontSize: 16, fontWeight: '700', color: '#166534' },
+  causesSubtitle: { fontSize: 13, color: '#4B7C59', marginBottom: 4 },
+
+  checkItem:         { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 5 },
+  checkbox:          { width: 22, height: 22, borderRadius: 5, borderWidth: 2, borderColor: '#d1d5db', alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff' },
+  checkboxChecked:   { backgroundColor: JD_GREEN, borderColor: JD_GREEN },
+  checkmark:         { color: '#fff', fontWeight: '900', fontSize: 13 },
+  checkLabel:        { flex: 1, fontSize: 14, color: '#374151' },
+  checkLabelChecked: { color: '#1a1a1a', fontWeight: '600' },
+
+  outrosInput: {
+    borderWidth: 1, borderColor: '#d1d5db', borderRadius: 8,
+    padding: 10, fontSize: 14, color: '#1a1a1a', backgroundColor: '#fff',
+    marginLeft: 32,
+  },
+
+  photoBtn: {
+    backgroundColor: '#1a1a1a', borderRadius: 12, padding: 16, alignItems: 'center', marginTop: 4,
+  },
+
+  backBtn: {
+    borderWidth: 1.5, borderColor: '#d1d5db', borderRadius: 10,
+    padding: 12, alignItems: 'center', backgroundColor: '#fff',
+  },
+  backBtnText: { color: '#6b7280', fontWeight: '600', fontSize: 14 },
 });

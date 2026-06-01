@@ -14,6 +14,7 @@ import {
   resumeActivity,
   finishDiagnosisActivity,
   uploadActivityPhoto,
+  uploadConnectivityPhoto,
 } from '../services/api';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { formatDaysOffline } from '../types';
@@ -21,13 +22,13 @@ import { formatDaysOffline } from '../types';
 type Nav = StackNavigationProp<RootStackParamList, 'Diagnosis'>;
 type Route = RouteProp<RootStackParamList, 'Diagnosis'>;
 
-// Legacy key kept for backward compat (AppNavigator may still reference it)
 export const ACTIVE_DIAGNOSIS_KEY = 'active_diagnosis';
 export const ACTIVE_DIAGNOSIS_V2_KEY = 'active_diagnosis_v2';
 export const ACTIVE_DIAGNOSIS_V2_PREFIX = 'active_diagnosis_v2_';
 
 type Step = 'step2b' | 'step2c';
-type Step2bOption = 'resolved_now' | 'needs_return' | null;
+type RepairSubstep = 'A' | 'B' | 'C' | 'D';
+type Step2bResolution = 'resolved' | 'needs_return' | null;
 
 const JD_GREEN  = '#367C2B';
 const JD_YELLOW = '#FFDE00';
@@ -52,10 +53,7 @@ const DISCONNECTED_CAUSES = [
   'Problema identificado mas requer peça/suporte',
 ];
 
-function pad(n: number): string {
-  return String(n).padStart(2, '0');
-}
-
+function pad(n: number): string { return String(n).padStart(2, '0'); }
 function formatElapsed(seconds: number): string {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
@@ -78,26 +76,41 @@ export default function DiagnosisScreen() {
   const defaultStep: Step = initialStep === 'step2c' ? 'step2c' : 'step2b';
 
   const [step, setStep]                 = useState<Step>(defaultStep);
-  const [step2bOption, setStep2bOption] = useState<Step2bOption>(null);
+  const [repairSubstep, setRepairSubstepState] = useState<RepairSubstep>('A');
+  const [problemDescription, setProblemDescription] = useState('');
+  const [step2bResolution, setStep2bResolution] = useState<Step2bResolution>(null);
+
+  // Photos: photoUri = needs_return/step2c photo; connectivity = step C; collection = step D
+  const [photoUri, setPhotoUri]                     = useState<string | null>(null);
+  const [connectivityPhotoUri, setConnectivityPhotoUri] = useState<string | null>(null);
+  const [collectionPhotoUri, setCollectionPhotoUri]   = useState<string | null>(null);
+
   const [disconnChecklist, setDisconnChecklist] = useState<boolean[]>(new Array(5).fill(false));
-  const [selectedMethod, setSelectedMethod]     = useState<'starlink_data_sync' | 'pen_drive' | null>(null);
-  const [noModemPredisposed, setNoModemPredisposed]         = useState<string | null>(null);
-  const [noModemRecommendation, setNoModemRecommendation]   = useState<string | null>(null);
-  const [notes, setNotes]       = useState('');
-  const [photoUri, setPhotoUri] = useState<string | null>(null);
-  const [loading, setLoading]   = useState(false);
-  const [done, setDone]         = useState(false);
+  const [outrosChecked, setOutrosChecked]       = useState(false);
+  const [outrosText, setOutrosText]             = useState('');
+
+  const [selectedMethod, setSelectedMethod]         = useState<'starlink_data_sync' | 'pen_drive' | null>(null);
+  const [noModemPredisposed, setNoModemPredisposed] = useState<string | null>(null);
+  const [noModemRecommendation, setNoModemRecommendation] = useState<string | null>(null);
+  const [notes, setNotes]     = useState('');
+  const [loading, setLoading] = useState(false);
+  const [done, setDone]       = useState(false);
   const [doneResult, setDoneResult] = useState<'resolved' | 'needs_return' | 'no_modem' | null>(null);
   const [isPaused, setIsPaused] = useState(false);
   const [elapsed, setElapsed]   = useState(0);
 
-  const startTimestampRef  = useRef<number>(Date.parse(routeStartedAt));
-  const totalPauseMsRef    = useRef<number>(0);
-  const pausedAtRef        = useRef<number | null>(null);
-  const activityIdRef      = useRef<number>(routeActivityId);
-  const intervalRef        = useRef<ReturnType<typeof setInterval> | null>(null);
-  const stepRef            = useRef<Step>(defaultStep);
-  const step2bOptionRef    = useRef<Step2bOption>(null);
+  const startTimestampRef = useRef<number>(Date.parse(routeStartedAt));
+  const totalPauseMsRef   = useRef<number>(0);
+  const pausedAtRef       = useRef<number | null>(null);
+  const activityIdRef     = useRef<number>(routeActivityId);
+  const intervalRef       = useRef<ReturnType<typeof setInterval> | null>(null);
+  const stepRef           = useRef<Step>(defaultStep);
+  const repairSubstepRef  = useRef<RepairSubstep>('A');
+
+  const setRepairSubstep = (s: RepairSubstep) => {
+    repairSubstepRef.current = s;
+    setRepairSubstepState(s);
+  };
 
   const calcElapsed = useCallback((): number => {
     const pausedMs = isPaused && pausedAtRef.current
@@ -114,7 +127,6 @@ export default function DiagnosisScreen() {
     intervalRef.current = setInterval(() => setElapsed(calcElapsed()), 1000);
   }, [calcElapsed]);
 
-  // Mount: remove legacy keys, restore state only if saved PIN matches this machine
   useEffect(() => {
     AsyncStorage.removeItem(ACTIVE_DIAGNOSIS_KEY).catch(() => {});
     AsyncStorage.removeItem(ACTIVE_DIAGNOSIS_V2_KEY).catch(() => {});
@@ -123,8 +135,6 @@ export default function DiagnosisScreen() {
       if (!raw) { startInterval(); return; }
       try {
         const saved = JSON.parse(raw);
-
-        // Only restore if this is the same activity for the same machine
         if (saved.activityId !== routeActivityId) { startInterval(); return; }
         const savedPin = saved.machinePin ?? '';
         if (savedPin && savedPin !== machinePin) { startInterval(); return; }
@@ -135,9 +145,8 @@ export default function DiagnosisScreen() {
           setStep(saved.step);
           stepRef.current = saved.step;
         }
-        if (saved.step2bOption) {
-          setStep2bOption(saved.step2bOption);
-          step2bOptionRef.current = saved.step2bOption;
+        if (saved.repairSubstep && ['A','B','C','D'].includes(saved.repairSubstep)) {
+          setRepairSubstep(saved.repairSubstep);
         }
 
         if (saved.pausedAt) {
@@ -176,7 +185,7 @@ export default function DiagnosisScreen() {
       currentHours,
       hoursDiff,
       step:          stepRef.current,
-      step2bOption:  step2bOptionRef.current,
+      repairSubstep: repairSubstepRef.current,
       totalPausedMs: totalPauseMsRef.current,
       pausedAt: paused && pausedAtRef.current
         ? new Date(pausedAtRef.current).toISOString()
@@ -184,14 +193,6 @@ export default function DiagnosisScreen() {
     };
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(data)).catch(() => {});
   }, [machine, org, currentHours, hoursDiff, routeStartedAt, machinePin, STORAGE_KEY]);
-
-  const selectStep2bOption = (opt: Step2bOption) => {
-    step2bOptionRef.current = opt;
-    setStep2bOption(opt);
-    setPhotoUri(null);
-    setSelectedMethod(null);
-    persistState(false);
-  };
 
   const handlePause = async () => {
     if (intervalRef.current) clearInterval(intervalRef.current);
@@ -219,7 +220,7 @@ export default function DiagnosisScreen() {
     }
   };
 
-  const takePhoto = async () => {
+  const takePhotoWith = async (setter: (uri: string) => void) => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== 'granted') {
       Alert.alert('Permissão negada', 'Autorize o acesso à câmera nas configurações.');
@@ -231,32 +232,25 @@ export default function DiagnosisScreen() {
       allowsEditing: false,
     });
     if (!result.canceled && result.assets.length > 0) {
-      setPhotoUri(result.assets[0].uri);
+      setter(result.assets[0].uri);
     }
   };
 
-  const handleFinish = async (diagnosisResult: 'resolved' | 'needs_return' | 'no_modem') => {
-    if (!photoUri) {
-      Alert.alert('Foto obrigatória', 'Tire uma foto antes de finalizar.');
-      return;
-    }
+  const takePhoto             = () => takePhotoWith(setPhotoUri);
+  const takeConnPhoto         = () => takePhotoWith(setConnectivityPhotoUri);
+  const takeCollectionPhoto   = () => takePhotoWith(setCollectionPhotoUri);
+
+  // Finish for needs_return and no_modem paths
+  const handleFinish = async (diagnosisResult: 'needs_return' | 'no_modem') => {
+    if (!photoUri) { Alert.alert('Foto obrigatória', 'Tire uma foto antes de finalizar.'); return; }
     if (diagnosisResult === 'needs_return' && !notes.trim()) {
       Alert.alert('Notas obrigatórias', 'Descreva o problema encontrado e o que é necessário.');
       return;
     }
     if (diagnosisResult === 'no_modem') {
-      if (!noModemPredisposed) {
-        Alert.alert('Campo obrigatório', 'Responda se a máquina é pré-disposta para instalação.');
-        return;
-      }
-      if (!noModemRecommendation) {
-        Alert.alert('Campo obrigatório', 'Selecione a recomendação para o cliente.');
-        return;
-      }
-      if (!notes.trim()) {
-        Alert.alert('Notas obrigatórias', 'Descreva as condições da máquina e observações.');
-        return;
-      }
+      if (!noModemPredisposed) { Alert.alert('Campo obrigatório', 'Responda se a máquina é pré-disposta para instalação.'); return; }
+      if (!noModemRecommendation) { Alert.alert('Campo obrigatório', 'Selecione a recomendação para o cliente.'); return; }
+      if (!notes.trim()) { Alert.alert('Notas obrigatórias', 'Descreva as condições da máquina e observações.'); return; }
     }
 
     if (intervalRef.current) clearInterval(intervalRef.current);
@@ -265,39 +259,31 @@ export default function DiagnosisScreen() {
     const checklist: boolean[] | Record<string, string | null> =
       diagnosisResult === 'no_modem'
         ? { predisposed: noModemPredisposed, recommendation: noModemRecommendation }
-        : disconnChecklist;
+        : [...disconnChecklist, outrosChecked];
+
+    const combinedNotes = diagnosisResult === 'needs_return'
+      ? [problemDescription.trim(), notes.trim()].filter(Boolean).join('\n')
+      : notes.trim();
+
     const totalPauseMin = Math.round(totalPauseMsRef.current / 60000);
     const net = await NetInfo.fetch();
     const isOnline = net.isConnected && net.isInternetReachable !== false;
 
     try {
       if (isOnline && activityIdRef.current > 0) {
-        let photoUploaded = false;
         for (let attempt = 1; attempt <= 2; attempt++) {
-          try { await uploadActivityPhoto(activityIdRef.current, photoUri); photoUploaded = true; break; }
-          catch { /* retry */ }
+          try { await uploadActivityPhoto(activityIdRef.current, photoUri); break; } catch { /* retry */ }
         }
-
         await finishDiagnosisActivity(activityIdRef.current, {
-          diagnosis_result:   diagnosisResult,
+          diagnosis_result: diagnosisResult,
           diagnosis_checklist: checklist,
           total_pause_minutes: totalPauseMin,
-          notes: diagnosisResult === 'needs_return' ? notes.trim() : undefined,
+          notes: combinedNotes || undefined,
         });
-
         await AsyncStorage.removeItem(STORAGE_KEY);
         setDoneResult(diagnosisResult);
         setDone(true);
-
-        if (!photoUploaded) {
-          setTimeout(() => Alert.alert(
-            diagnosisResult === 'resolved' ? 'Concluído' : 'Diagnóstico registrado',
-            'Foto não enviada — verifique sua conexão.',
-            [{ text: 'OK', onPress: () => navigation.navigate('MachineList', { org }) }],
-          ), 400);
-        } else {
-          setTimeout(() => navigation.navigate('MachineList', { org }), 1500);
-        }
+        setTimeout(() => navigation.navigate('MachineList', { org }), 1500);
       } else {
         await AsyncStorage.removeItem(STORAGE_KEY);
         setDoneResult(diagnosisResult);
@@ -306,6 +292,62 @@ export default function DiagnosisScreen() {
       }
     } catch {
       Alert.alert('Erro', 'Não foi possível finalizar.');
+      startInterval();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Finish for the resolved path (STEP D)
+  const handleFinishResolved = async () => {
+    if (!selectedMethod) { Alert.alert('Método obrigatório', 'Selecione o método de coleta.'); return; }
+    if (!connectivityPhotoUri) { Alert.alert('Foto obrigatória', 'Tire a foto do painel mostrando conexão ativa.'); return; }
+    if (!collectionPhotoUri) { Alert.alert('Foto obrigatória', 'Tire a foto do painel após a coleta.'); return; }
+
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    setLoading(true);
+
+    const checklist = [...disconnChecklist, outrosChecked];
+    const notesText = [
+      problemDescription.trim(),
+      outrosChecked && outrosText.trim() ? `Outros: ${outrosText.trim()}` : '',
+    ].filter(Boolean).join('\n');
+    const totalPauseMin = Math.round(totalPauseMsRef.current / 60000);
+    const net = await NetInfo.fetch();
+    const isOnline = net.isConnected && net.isInternetReachable !== false;
+
+    try {
+      if (isOnline && activityIdRef.current > 0) {
+        for (let i = 1; i <= 2; i++) {
+          try { await uploadConnectivityPhoto(activityIdRef.current, connectivityPhotoUri); break; } catch { /* retry */ }
+        }
+        let photo2Ok = false;
+        for (let i = 1; i <= 2; i++) {
+          try { await uploadActivityPhoto(activityIdRef.current, collectionPhotoUri); photo2Ok = true; break; } catch { /* retry */ }
+        }
+        await finishDiagnosisActivity(activityIdRef.current, {
+          diagnosis_result: 'resolved',
+          diagnosis_checklist: checklist,
+          total_pause_minutes: totalPauseMin,
+          notes: notesText || undefined,
+        });
+        await AsyncStorage.removeItem(STORAGE_KEY);
+        setDoneResult('resolved');
+        setDone(true);
+        if (!photo2Ok) {
+          setTimeout(() => Alert.alert('Coleta concluída', 'Foto do painel não enviada — verifique sua conexão.',
+            [{ text: 'OK', onPress: () => navigation.navigate('MachineList', { org }) }]), 400);
+        } else {
+          setTimeout(() => navigation.navigate('MachineList', { org }), 1500);
+        }
+      } else {
+        await AsyncStorage.removeItem(STORAGE_KEY);
+        setDoneResult('resolved');
+        setDone(true);
+        setTimeout(() => navigation.navigate('MachineList', { org }), 1500);
+      }
+    } catch {
+      Alert.alert('Erro', 'Não foi possível finalizar a coleta.');
       startInterval();
     } finally {
       setLoading(false);
@@ -337,7 +379,7 @@ export default function DiagnosisScreen() {
         <InfoRow label="Diferença"       value={`${hoursDiff.toFixed(1)} h`} />
       </View>
 
-      {/* Timer — always visible */}
+      {/* Timer */}
       <View style={[styles.timerBar, isPaused && styles.timerBarPaused]}>
         <Text style={styles.timerBarLabel}>⏱ Tempo de serviço:</Text>
         <Text style={[styles.timerBarValue, isPaused && styles.timerBarValuePaused]}>
@@ -346,43 +388,185 @@ export default function DiagnosisScreen() {
         {isPaused && <Text style={styles.pausedBadge}>PAUSADO</Text>}
       </View>
 
-      {/* ── STEP 2B: Machine NOT Connected ───────────────────────────── */}
+      {/* ── STEP 2B: Machine NOT Connected ── */}
       {step === 'step2b' && (
         <>
-          <View style={styles.warningSection}>
-            <Text style={styles.warningTitle}>Máquina sem conectividade</Text>
-            <Text style={styles.sectionSubLabel}>Marque as causas identificadas:</Text>
-            {DISCONNECTED_CAUSES.map((item, i) => (
+          {/* ── STEP A: Problem description ── */}
+          {repairSubstep === 'A' && (
+            <View style={styles.stepCard}>
+              <Text style={styles.stepCardTitle}>🔧 Iniciando diagnóstico</Text>
+              <Text style={styles.stepCardLabel}>Descreva o problema encontrado</Text>
+              <TextInput
+                style={styles.notesInput}
+                value={problemDescription}
+                onChangeText={setProblemDescription}
+                placeholder="Ex: Modem sem alimentação elétrica, fusível queimado..."
+                placeholderTextColor="#aaa"
+                multiline
+                numberOfLines={4}
+                textAlignVertical="top"
+              />
               <TouchableOpacity
-                key={i}
-                style={styles.checkItem}
-                onPress={() => {
-                  const next = [...disconnChecklist];
-                  next[i] = !next[i];
-                  setDisconnChecklist(next);
-                }}
+                style={[styles.actionBtn, !problemDescription.trim() && styles.actionBtnDisabled]}
+                onPress={() => { if (problemDescription.trim()) setRepairSubstep('B'); }}
+                disabled={!problemDescription.trim()}
               >
-                <View style={[styles.checkbox, disconnChecklist[i] && styles.checkboxChecked]}>
-                  {disconnChecklist[i] && <Text style={styles.checkmark}>✓</Text>}
-                </View>
-                <Text style={[styles.checkLabel, disconnChecklist[i] && styles.checkLabelChecked]}>
-                  {item}
-                </Text>
+                <Text style={styles.actionBtnText}>Iniciar reparo</Text>
               </TouchableOpacity>
-            ))}
-          </View>
+              {!problemDescription.trim() && (
+                <Text style={styles.hintText}>Descreva o problema para continuar</Text>
+              )}
+            </View>
+          )}
 
-          {/* Sub-option A: resolved now */}
-          <TouchableOpacity
-            style={[styles.optionCard, step2bOption === 'resolved_now' && styles.optionCardActive]}
-            onPress={() => selectStep2bOption('resolved_now')}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.optionTitle}>Problema resolvido agora</Text>
-            <Text style={styles.optionDesc}>O problema foi corrigido e a máquina está conectada</Text>
+          {/* ── STEP B: Causes checklist + resolution ── */}
+          {repairSubstep === 'B' && (
+            <>
+              <View style={styles.warningSection}>
+                <Text style={styles.warningTitle}>✅ Após o reparo — identificar causas</Text>
+                <Text style={styles.sectionSubLabel}>Marque as causas identificadas durante o diagnóstico:</Text>
+                {DISCONNECTED_CAUSES.map((item, i) => (
+                  <TouchableOpacity
+                    key={i}
+                    style={styles.checkItem}
+                    onPress={() => {
+                      const next = [...disconnChecklist];
+                      next[i] = !next[i];
+                      setDisconnChecklist(next);
+                    }}
+                  >
+                    <View style={[styles.checkbox, disconnChecklist[i] && styles.checkboxChecked]}>
+                      {disconnChecklist[i] && <Text style={styles.checkmark}>✓</Text>}
+                    </View>
+                    <Text style={[styles.checkLabel, disconnChecklist[i] && styles.checkLabelChecked]}>{item}</Text>
+                  </TouchableOpacity>
+                ))}
 
-            {step2bOption === 'resolved_now' && (
-              <View style={styles.optionBody}>
+                {/* Outros */}
+                <TouchableOpacity
+                  style={styles.checkItem}
+                  onPress={() => setOutrosChecked(!outrosChecked)}
+                >
+                  <View style={[styles.checkbox, outrosChecked && styles.checkboxChecked]}>
+                    {outrosChecked && <Text style={styles.checkmark}>✓</Text>}
+                  </View>
+                  <Text style={[styles.checkLabel, outrosChecked && styles.checkLabelChecked]}>Outros</Text>
+                </TouchableOpacity>
+                {outrosChecked && (
+                  <TextInput
+                    style={styles.outrosInput}
+                    value={outrosText}
+                    onChangeText={setOutrosText}
+                    placeholder="Descreva o problema identificado"
+                    placeholderTextColor="#aaa"
+                  />
+                )}
+              </View>
+
+              {/* Resolution A — Resolved */}
+              <TouchableOpacity
+                style={styles.resolvedBtn}
+                onPress={() => {
+                  setStep2bResolution('resolved');
+                  setRepairSubstep('C');
+                }}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.resolvedBtnText}>✅ Problema resolvido — verificar conexão</Text>
+              </TouchableOpacity>
+
+              {/* Resolution B — Needs return */}
+              <TouchableOpacity
+                style={[styles.optionCard, step2bResolution === 'needs_return' && styles.optionCardActive]}
+                onPress={() => setStep2bResolution(step2bResolution === 'needs_return' ? null : 'needs_return')}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.optionTitle}>🔄 Requer retorno com peça/suporte</Text>
+                <Text style={styles.optionDesc}>Não foi possível resolver — documentar e pausar se necessário</Text>
+
+                {step2bResolution === 'needs_return' && !isPaused && (
+                  <View style={styles.optionBody}>
+                    <TextInput
+                      style={styles.notesInput}
+                      value={notes}
+                      onChangeText={setNotes}
+                      placeholder="Descreva o que é necessário para o retorno (obrigatório)..."
+                      placeholderTextColor="#aaa"
+                      multiline
+                      numberOfLines={4}
+                      textAlignVertical="top"
+                    />
+                    <PhotoBlock
+                      photoUri={photoUri}
+                      onTakePhoto={takePhoto}
+                      label="Foto do modem/máquina mostrando o problema"
+                      instruction="Fotografe o componente com problema"
+                    />
+                    <TouchableOpacity style={styles.pauseBtn} onPress={handlePause}>
+                      <Text style={styles.pauseBtnText}>Pausar — retornar outro dia</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.finishBtn, (!photoUri || !notes.trim()) && styles.finishBtnDisabled]}
+                      onPress={() => handleFinish('needs_return')}
+                      disabled={loading || !photoUri || !notes.trim()}
+                    >
+                      {loading
+                        ? <ActivityIndicator color="#fff" />
+                        : <Text style={styles.finishBtnText}>Finalizar Diagnóstico</Text>}
+                    </TouchableOpacity>
+                    {!notes.trim() && <Text style={styles.hintText}>Notas obrigatórias para finalizar</Text>}
+                    {!photoUri && <Text style={styles.hintText}>Foto obrigatória para finalizar</Text>}
+                  </View>
+                )}
+
+                {step2bResolution === 'needs_return' && isPaused && (
+                  <View style={styles.optionBody}>
+                    <TouchableOpacity style={styles.resumeBtn} onPress={handleResume}>
+                      <Text style={styles.pauseBtnText}>Retomar diagnóstico</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </TouchableOpacity>
+            </>
+          )}
+
+          {/* ── STEP C: Connectivity photo ── */}
+          {repairSubstep === 'C' && (
+            <View style={styles.stepCard}>
+              <Text style={styles.stepCardTitle}>📷 Foto 1: Painel mostrando conexão ativa</Text>
+              <Text style={styles.stepCardSubtitle}>Fotografe o símbolo de conexão ativo no painel antes de coletar</Text>
+              <PhotoBlock
+                photoUri={connectivityPhotoUri}
+                onTakePhoto={takeConnPhoto}
+                label="Tirar foto do painel"
+                instruction="Certifique-se que o símbolo de conexão está visível"
+              />
+              <TouchableOpacity
+                style={[styles.actionBtn, !connectivityPhotoUri && styles.actionBtnDisabled]}
+                onPress={() => { if (connectivityPhotoUri) setRepairSubstep('D'); }}
+                disabled={!connectivityPhotoUri}
+              >
+                <Text style={styles.actionBtnText}>Avançar para coleta</Text>
+              </TouchableOpacity>
+              {!connectivityPhotoUri && (
+                <Text style={styles.hintText}>Foto obrigatória para avançar</Text>
+              )}
+            </View>
+          )}
+
+          {/* ── STEP D: Method + collection photo + finish ── */}
+          {repairSubstep === 'D' && (
+            <>
+              {/* Photo 1 preview */}
+              {connectivityPhotoUri && (
+                <View style={styles.photo1Preview}>
+                  <Text style={styles.photo1Label}>Foto 1 — Conexão confirmada</Text>
+                  <Image source={{ uri: connectivityPhotoUri }} style={styles.photo1Thumbnail} resizeMode="cover" />
+                </View>
+              )}
+
+              {/* Method selector */}
+              <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Método de coleta</Text>
                 <View style={styles.methodRow}>
                   {(['starlink_data_sync', 'pen_drive'] as const).map((m) => (
@@ -397,83 +581,36 @@ export default function DiagnosisScreen() {
                     </TouchableOpacity>
                   ))}
                 </View>
+              </View>
+
+              {/* Photo 2 */}
+              <View style={styles.stepCard}>
+                <Text style={styles.stepCardTitle}>📷 Foto 2: Painel mostrando coleta concluída</Text>
                 <PhotoBlock
-                  photoUri={photoUri}
-                  onTakePhoto={takePhoto}
-                  label="Foto do painel mostrando conexão ativa"
-                  instruction="Fotografe o painel mostrando o símbolo de conexão ativa"
+                  photoUri={collectionPhotoUri}
+                  onTakePhoto={takeCollectionPhoto}
+                  label="Foto do painel após coleta"
+                  instruction="Fotografe o painel após realizar a coleta de dados"
                 />
-                <TouchableOpacity
-                  style={[styles.finishBtn, (!photoUri || !selectedMethod) && styles.finishBtnDisabled]}
-                  onPress={() => handleFinish('resolved')}
-                  disabled={loading || !photoUri || !selectedMethod}
-                >
-                  {loading
-                    ? <ActivityIndicator color="#fff" />
-                    : <Text style={styles.finishBtnText}>Finalizar Coleta</Text>}
-                </TouchableOpacity>
-                {!selectedMethod && <Text style={styles.hintText}>Selecione o método de coleta</Text>}
-                {!photoUri && <Text style={styles.hintText}>Foto obrigatória para finalizar</Text>}
               </View>
-            )}
-          </TouchableOpacity>
 
-          {/* Sub-option B: needs return */}
-          <TouchableOpacity
-            style={[styles.optionCard, step2bOption === 'needs_return' && styles.optionCardActive]}
-            onPress={() => selectStep2bOption('needs_return')}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.optionTitle}>Requer retorno com peça/suporte</Text>
-            <Text style={styles.optionDesc}>Não foi possível resolver — documentar e pausar se necessário</Text>
-
-            {step2bOption === 'needs_return' && !isPaused && (
-              <View style={styles.optionBody}>
-                <TextInput
-                  style={styles.notesInput}
-                  value={notes}
-                  onChangeText={setNotes}
-                  placeholder="Descreva o problema encontrado e o que é necessário (obrigatório)..."
-                  placeholderTextColor="#aaa"
-                  multiline
-                  numberOfLines={4}
-                  textAlignVertical="top"
-                />
-                <PhotoBlock
-                  photoUri={photoUri}
-                  onTakePhoto={takePhoto}
-                  label="Foto do modem/máquina mostrando o problema"
-                  instruction="Fotografe o componente com problema"
-                />
-                <TouchableOpacity style={styles.pauseBtn} onPress={handlePause}>
-                  <Text style={styles.pauseBtnText}>Pausar — retornar outro dia</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.finishBtn, (!photoUri || !notes.trim()) && styles.finishBtnDisabled]}
-                  onPress={() => handleFinish('needs_return')}
-                  disabled={loading || !photoUri || !notes.trim()}
-                >
-                  {loading
-                    ? <ActivityIndicator color="#fff" />
-                    : <Text style={styles.finishBtnText}>Finalizar Diagnóstico</Text>}
-                </TouchableOpacity>
-                {!notes.trim() && <Text style={styles.hintText}>Notas obrigatórias para finalizar</Text>}
-                {!photoUri && <Text style={styles.hintText}>Foto obrigatória para finalizar</Text>}
-              </View>
-            )}
-
-            {step2bOption === 'needs_return' && isPaused && (
-              <View style={styles.optionBody}>
-                <TouchableOpacity style={styles.resumeBtn} onPress={handleResume}>
-                  <Text style={styles.pauseBtnText}>Retomar diagnóstico</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-          </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.finishBtn, (!collectionPhotoUri || !selectedMethod) && styles.finishBtnDisabled]}
+                onPress={handleFinishResolved}
+                disabled={loading || !collectionPhotoUri || !selectedMethod}
+              >
+                {loading
+                  ? <ActivityIndicator color="#fff" />
+                  : <Text style={styles.finishBtnText}>✅ Finalizar Coleta</Text>}
+              </TouchableOpacity>
+              {!selectedMethod && <Text style={styles.hintText}>Selecione o método de coleta</Text>}
+              {!collectionPhotoUri && <Text style={styles.hintText}>Foto 2 obrigatória para finalizar</Text>}
+            </>
+          )}
         </>
       )}
 
-      {/* ── STEP 2C: No Modem Installed ──────────────────────────────── */}
+      {/* ── STEP 2C: No Modem Installed ── */}
       {step === 'step2c' && (
         <>
           <View style={styles.noModemSection}>
@@ -638,6 +775,14 @@ const styles = StyleSheet.create({
   timerBarValuePaused: { color: '#9ca3af' },
   pausedBadge:         { marginLeft: 'auto', backgroundColor: '#6B7280', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, color: '#fff', fontSize: 11, fontWeight: '700' },
 
+  stepCard: {
+    backgroundColor: '#fff', borderRadius: 12, padding: 16, gap: 10,
+    elevation: 1, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 2,
+  },
+  stepCardTitle:    { fontSize: 16, fontWeight: '700', color: '#1a1a1a' },
+  stepCardSubtitle: { fontSize: 13, color: '#6b7280' },
+  stepCardLabel:    { fontSize: 14, fontWeight: '600', color: '#374151' },
+
   section: {
     backgroundColor: '#fff', borderRadius: 12, padding: 16, gap: 10,
     elevation: 1, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 2,
@@ -658,14 +803,38 @@ const styles = StyleSheet.create({
   checkLabel:        { flex: 1, fontSize: 14, color: '#374151' },
   checkLabelChecked: { color: '#1a1a1a', fontWeight: '600' },
 
+  outrosInput: {
+    borderWidth: 1, borderColor: '#d1d5db', borderRadius: 8,
+    padding: 10, fontSize: 14, color: '#1a1a1a', backgroundColor: '#fff',
+    marginLeft: 32,
+  },
+
+  resolvedBtn: {
+    backgroundColor: JD_GREEN, borderRadius: 12, padding: 16, alignItems: 'center',
+  },
+  resolvedBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+
+  actionBtn: {
+    backgroundColor: '#1a1a1a', borderRadius: 10, padding: 16, alignItems: 'center',
+  },
+  actionBtnDisabled: { backgroundColor: '#9ca3af' },
+  actionBtnText:     { color: '#fff', fontWeight: '700', fontSize: 16 },
+
   optionCard: {
     backgroundColor: '#fff', borderRadius: 12, padding: 14, gap: 4,
     borderWidth: 1.5, borderColor: '#e5e7eb',
   },
-  optionCardActive: { borderColor: JD_GREEN, backgroundColor: '#f0fdf4' },
+  optionCardActive: { borderColor: '#6B7280', backgroundColor: '#f9fafb' },
   optionTitle:      { fontSize: 14, fontWeight: '700', color: '#1a1a1a' },
   optionDesc:       { fontSize: 13, color: '#6b7280' },
   optionBody:       { gap: 10, marginTop: 8, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#e5e7eb' },
+
+  photo1Preview: {
+    backgroundColor: '#fff', borderRadius: 12, padding: 12, gap: 8,
+    borderWidth: 1.5, borderColor: '#bbf7d0',
+  },
+  photo1Label:     { fontSize: 12, fontWeight: '600', color: '#166534' },
+  photo1Thumbnail: { width: '100%', height: 180, borderRadius: 8, backgroundColor: '#f0f0f0' },
 
   methodRow:           { flexDirection: 'row', gap: 8 },
   methodBtn:           { flex: 1, borderWidth: 1.5, borderColor: '#ddd', borderRadius: 8, padding: 12, alignItems: 'center' },
