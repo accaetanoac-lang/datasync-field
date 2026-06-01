@@ -30,6 +30,7 @@ interface ActivityReport {
   created_at: string;
   is_diagnosis?: boolean;
   diagnosis_result?: string;
+  diagnosis_checklist?: boolean[] | Record<string, string>;
   connectivity_issue?: boolean;
 }
 
@@ -58,8 +59,21 @@ const METHOD_LABEL: Record<string, string> = {
 const DIAGNOSIS_RESULT_LABEL: Record<string, string> = {
   resolved:     '✅ Conectividade restabelecida',
   escalated:    '🔧 Escalonado para suporte técnico',
-  needs_return: '🔄 Requer retorno',
+  needs_return: '🔄 Requer retorno com peça/suporte',
   unidentified: '❌ Causa não identificada',
+  no_modem:     '📡 Máquina sem Modem JDLink instalado',
+};
+
+const PREDISPOSED_LABEL: Record<string, string> = {
+  yes:     'Sim — possui conector/chicote para instalação',
+  no:      'Não — requer adaptação/instalação de chicote',
+  unknown: 'Não sei — verificação técnica necessária',
+};
+
+const RECOMMENDATION_LABEL: Record<string, string> = {
+  recommend_install: 'Recomendar instalação do Modem JDLink ao cliente',
+  open_os:           'Abrir OS de instalação do modem',
+  tech_verify:       'Verificação técnica necessária antes de recomendar',
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -185,7 +199,24 @@ export default function ActivityReportPage() {
           <Row label="Status" value={STATUS_LABEL[report.status] ?? report.status} />
         </Section>
 
-        {report.is_diagnosis && (
+        {report.is_diagnosis && report.diagnosis_result === 'no_modem' && (() => {
+          const cl = report.diagnosis_checklist as Record<string, string> | undefined;
+          return (
+            <Section title="AUSÊNCIA DE MODEM JDLINK">
+              <Row label="Resultado" value={DIAGNOSIS_RESULT_LABEL.no_modem} />
+              <Row
+                label="Pré-disposta para instalação"
+                value={cl?.predisposed ? (PREDISPOSED_LABEL[cl.predisposed] ?? cl.predisposed) : '—'}
+              />
+              <Row
+                label="Recomendação"
+                value={cl?.recommendation ? (RECOMMENDATION_LABEL[cl.recommendation] ?? cl.recommendation) : '—'}
+              />
+            </Section>
+          );
+        })()}
+
+        {report.is_diagnosis && report.diagnosis_result !== 'no_modem' && (
           <Section title="DIAGNÓSTICO DE CONECTIVIDADE">
             <Row
               label="Resultado"
@@ -199,7 +230,7 @@ export default function ActivityReportPage() {
           </Section>
         )}
 
-        <Section title="EVIDÊNCIA FOTOGRÁFICA">
+        <Section title={report.diagnosis_result === 'no_modem' ? 'EVIDÊNCIA FOTOGRÁFICA — LOCAL DO MODEM' : 'EVIDÊNCIA FOTOGRÁFICA'}>
           {report.photo_url ? (
             <div className="px-4 pb-4">
               <img
@@ -209,7 +240,11 @@ export default function ActivityReportPage() {
                 style={{ maxHeight: 360 }}
               />
               <p className="text-xs text-gray-500 text-center mt-2">
-                Painel da máquina após coleta
+                {report.diagnosis_result === 'no_modem'
+                  ? 'Local de instalação do modem'
+                  : report.diagnosis_result === 'needs_return'
+                  ? 'Modem/máquina com problema'
+                  : 'Painel da máquina após coleta'}
                 {report.photo_taken_at && (
                   <span> · {formatDateTime(report.photo_taken_at)}</span>
                 )}
