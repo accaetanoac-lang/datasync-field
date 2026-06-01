@@ -57,6 +57,13 @@ export interface Activity {
   connectivity_photo_url?: string;
   pre_signed_connectivity_photo_url?: string;
   connectivity_photo_taken_at?: string;
+  // Operations Center survey
+  oc_has_app?: boolean | null;
+  oc_uses_it?: boolean | null;
+  oc_interested?: boolean | null;
+  oc_explained?: boolean;
+  oc_photo_url?: string;
+  oc_notes?: string;
   // Diagnosis fields
   is_diagnosis?: boolean;
   diagnosis_result?: 'resolved' | 'needs_return' | 'unidentified' | 'no_modem';

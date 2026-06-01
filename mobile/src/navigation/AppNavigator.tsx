@@ -17,6 +17,7 @@ import DataCollectionScreen from '../screens/DataCollectionScreen';
 import ConnectivityDiagnosisScreen from '../screens/ConnectivityDiagnosisScreen';
 import NonJDMachineScreen from '../screens/NonJDMachineScreen';
 import CannotActScreen from '../screens/CannotActScreen';
+import OperationsCenterSurveyScreen from '../screens/OperationsCenterSurveyScreen';
 import { Organization, Machine } from '../types';
 
 type SavedActivity = {
@@ -83,6 +84,7 @@ export type RootStackParamList = {
     };
   };
   CannotAct: { machine: Machine; org: Organization };
+  OperationsCenterSurvey: { activityId: number; org: Organization; doneTitle: string; doneSub: string };
 };
 
 const Stack = createStackNavigator<RootStackParamList>();
@@ -310,6 +312,11 @@ export default function AppNavigator() {
               name="CannotAct"
               component={CannotActScreen}
               options={{ title: '⚠️ Registrar Impedimento' }}
+            />
+            <Stack.Screen
+              name="OperationsCenterSurvey"
+              component={OperationsCenterSurveyScreen}
+              options={{ title: '📱 Operations Center', headerLeft: () => null }}
             />
           </>
         )}

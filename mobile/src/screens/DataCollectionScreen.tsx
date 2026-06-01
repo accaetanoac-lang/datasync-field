@@ -30,7 +30,6 @@ export default function DataCollectionScreen() {
   const [selectedMethod, setSelectedMethod] = useState<'starlink_data_sync' | 'pen_drive' | null>(null);
   const [collectionPhotoUri, setCollectionPhotoUri] = useState<string | null>(null);
   const [loading, setLoading]   = useState(false);
-  const [done, setDone]         = useState(false);
   const [elapsed, setElapsed]   = useState(0);
 
   const startTsRef  = useRef(Date.parse(startedAt));
@@ -108,21 +107,26 @@ export default function DataCollectionScreen() {
         });
 
         await AsyncStorage.removeItem(machineKey).catch(() => {});
-        setDone(true);
-
+        const goToSurvey = () => navigation.navigate('OperationsCenterSurvey', {
+          activityId,
+          org,
+          doneTitle: 'Coleta concluída!',
+          doneSub: 'Dados sincronizados com sucesso',
+        });
         if (!photo2Ok) {
-          setTimeout(() => Alert.alert(
-            'Coleta concluída',
-            'Foto do painel não enviada — verifique sua conexão.',
-            [{ text: 'OK', onPress: () => navigation.navigate('MachineList', { org }) }],
-          ), 400);
+          Alert.alert('Coleta concluída', 'Foto do painel não enviada — verifique sua conexão.',
+            [{ text: 'OK', onPress: goToSurvey }]);
         } else {
-          setTimeout(() => navigation.navigate('MachineList', { org }), 1500);
+          goToSurvey();
         }
       } else {
         await AsyncStorage.removeItem(machineKey).catch(() => {});
-        setDone(true);
-        setTimeout(() => navigation.navigate('MachineList', { org }), 1500);
+        navigation.navigate('OperationsCenterSurvey', {
+          activityId,
+          org,
+          doneTitle: 'Coleta concluída!',
+          doneSub: 'Dados sincronizados com sucesso',
+        });
       }
     } catch {
       Alert.alert('Erro', 'Não foi possível finalizar a coleta.');
@@ -131,16 +135,6 @@ export default function DataCollectionScreen() {
       setLoading(false);
     }
   };
-
-  if (done) {
-    return (
-      <View style={styles.center}>
-        <Text style={styles.doneIcon}>✓</Text>
-        <Text style={styles.doneText}>Coleta concluída!</Text>
-        <Text style={styles.doneSub}>Dados sincronizados com sucesso</Text>
-      </View>
-    );
-  }
 
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
@@ -258,7 +252,4 @@ const styles = StyleSheet.create({
   finishBtnText:     { color: '#fff', fontWeight: '700', fontSize: 17 },
   hintText:          { textAlign: 'center', fontSize: 13, color: '#ef4444', marginTop: -4 },
 
-  doneIcon: { fontSize: 72, color: JD_GREEN },
-  doneText: { fontSize: 22, fontWeight: '700', color: JD_GREEN, marginTop: 16 },
-  doneSub:  { fontSize: 16, color: '#555', marginTop: 8 },
 });

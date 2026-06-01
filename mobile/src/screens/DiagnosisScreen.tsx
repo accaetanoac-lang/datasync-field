@@ -94,8 +94,6 @@ export default function DiagnosisScreen() {
   const [noModemRecommendation, setNoModemRecommendation] = useState<string | null>(null);
   const [notes, setNotes]     = useState('');
   const [loading, setLoading] = useState(false);
-  const [done, setDone]       = useState(false);
-  const [doneResult, setDoneResult] = useState<'resolved' | 'needs_return' | 'no_modem' | null>(null);
   const [isPaused, setIsPaused] = useState(false);
   const [elapsed, setElapsed]   = useState(0);
 
@@ -270,6 +268,13 @@ export default function DiagnosisScreen() {
     const isOnline = net.isConnected && net.isInternetReachable !== false;
 
     try {
+      const DONE_LABELS = {
+        needs_return: { doneTitle: 'Diagnóstico registrado!', doneSub: 'Retorno registrado com sucesso' },
+        no_modem:     { doneTitle: 'Registrado!',             doneSub: 'Ausência de modem registrada com sucesso' },
+      } as const;
+      const { doneTitle, doneSub } = DONE_LABELS[diagnosisResult as keyof typeof DONE_LABELS] ??
+        { doneTitle: 'Concluído!', doneSub: '' };
+
       if (isOnline && activityIdRef.current > 0) {
         for (let attempt = 1; attempt <= 2; attempt++) {
           try { await uploadActivityPhoto(activityIdRef.current, photoUri); break; } catch { /* retry */ }
@@ -281,14 +286,10 @@ export default function DiagnosisScreen() {
           notes: combinedNotes || undefined,
         });
         await AsyncStorage.removeItem(STORAGE_KEY);
-        setDoneResult(diagnosisResult);
-        setDone(true);
-        setTimeout(() => navigation.navigate('MachineList', { org }), 1500);
+        navigation.navigate('OperationsCenterSurvey', { activityId: activityIdRef.current, org, doneTitle, doneSub });
       } else {
         await AsyncStorage.removeItem(STORAGE_KEY);
-        setDoneResult(diagnosisResult);
-        setDone(true);
-        setTimeout(() => navigation.navigate('MachineList', { org }), 1500);
+        navigation.navigate('OperationsCenterSurvey', { activityId: activityIdRef.current, org, doneTitle, doneSub });
       }
     } catch {
       Alert.alert('Erro', 'Não foi possível finalizar.');
@@ -332,19 +333,26 @@ export default function DiagnosisScreen() {
           notes: notesText || undefined,
         });
         await AsyncStorage.removeItem(STORAGE_KEY);
-        setDoneResult('resolved');
-        setDone(true);
+        const goToSurvey = () => navigation.navigate('OperationsCenterSurvey', {
+          activityId: activityIdRef.current,
+          org,
+          doneTitle: 'Coleta concluída!',
+          doneSub: 'Atividade salva com sucesso',
+        });
         if (!photo2Ok) {
-          setTimeout(() => Alert.alert('Coleta concluída', 'Foto do painel não enviada — verifique sua conexão.',
-            [{ text: 'OK', onPress: () => navigation.navigate('MachineList', { org }) }]), 400);
+          Alert.alert('Coleta concluída', 'Foto do painel não enviada — verifique sua conexão.',
+            [{ text: 'OK', onPress: goToSurvey }]);
         } else {
-          setTimeout(() => navigation.navigate('MachineList', { org }), 1500);
+          goToSurvey();
         }
       } else {
         await AsyncStorage.removeItem(STORAGE_KEY);
-        setDoneResult('resolved');
-        setDone(true);
-        setTimeout(() => navigation.navigate('MachineList', { org }), 1500);
+        navigation.navigate('OperationsCenterSurvey', {
+          activityId: activityIdRef.current,
+          org,
+          doneTitle: 'Coleta concluída!',
+          doneSub: 'Atividade salva com sucesso',
+        });
       }
     } catch {
       Alert.alert('Erro', 'Não foi possível finalizar a coleta.');
@@ -353,18 +361,6 @@ export default function DiagnosisScreen() {
       setLoading(false);
     }
   };
-
-  if (done) {
-    const doneTitle = doneResult === 'resolved' ? 'Coleta concluída!' : doneResult === 'no_modem' ? 'Registrado!' : 'Diagnóstico registrado!';
-    const doneSub   = doneResult === 'resolved' ? 'Atividade salva com sucesso' : doneResult === 'no_modem' ? 'Ausência de modem registrada com sucesso' : 'Retorno registrado com sucesso';
-    return (
-      <View style={styles.center}>
-        <Text style={styles.doneIcon}>✓</Text>
-        <Text style={styles.doneText}>{doneTitle}</Text>
-        <Text style={styles.doneSub}>{doneSub}</Text>
-      </View>
-    );
-  }
 
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>

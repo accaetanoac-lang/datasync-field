@@ -401,6 +401,57 @@ router.put('/:id/no-use', async (req: Request, res: Response): Promise<void> => 
   res.json(updated);
 });
 
+// ─── PUT /:id/oc-survey ──────────────────────────────────────────────────────
+
+router.put('/:id/oc-survey', async (req: Request, res: Response): Promise<void> => {
+  const activityId = parseInt(req.params.id, 10);
+  if (isNaN(activityId)) { res.status(400).json({ error: 'Invalid id' }); return; }
+
+  const { oc_has_app, oc_uses_it, oc_interested, oc_explained, oc_notes } = req.body as {
+    oc_has_app?: boolean | null;
+    oc_uses_it?: boolean | null;
+    oc_interested?: boolean | null;
+    oc_explained?: boolean;
+    oc_notes?: string;
+  };
+
+  await query(
+    `UPDATE activities SET oc_has_app=$1, oc_uses_it=$2, oc_interested=$3, oc_explained=$4, oc_notes=$5 WHERE id=$6`,
+    [oc_has_app ?? null, oc_uses_it ?? null, oc_interested ?? null, oc_explained ?? false, oc_notes ?? null, activityId]
+  );
+
+  res.json({ ok: true });
+});
+
+// ─── POST /:id/oc-photo ──────────────────────────────────────────────────────
+
+router.post('/:id/oc-photo', (req: Request, res: Response, next: NextFunction): void => {
+  photoUpload(req, res, (err) => {
+    if (err) { res.status(400).json({ error: err instanceof Error ? err.message : 'Upload error' }); return; }
+    next();
+  });
+}, async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  const activityId = parseInt(req.params.id, 10);
+
+  if (!req.file) { res.status(400).json({ error: 'No photo uploaded' }); return; }
+
+  const existing = await queryOne<{ id: number }>('SELECT id FROM activities WHERE id = $1', [activityId]);
+  if (!existing) { res.status(404).json({ error: 'Activity not found' }); return; }
+
+  try {
+    const s3 = new AWS.S3({ region: process.env.AWS_REGION ?? 'us-east-1' });
+    const key = `activities/${activityId}/oc_explanation_${Date.now()}.jpg`;
+    await s3.putObject({
+      Bucket: BUCKET, Key: key, Body: req.file.buffer, ContentType: 'image/jpeg',
+    }).promise();
+    const photoUrl = `https://${BUCKET}.s3.amazonaws.com/${key}`;
+    await query(`UPDATE activities SET oc_photo_url=$1, oc_explained=TRUE WHERE id=$2`, [photoUrl, activityId]);
+    res.json({ oc_photo_url: photoUrl });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // ─── POST /no-use-direct ─────────────────────────────────────────────────────
 
 router.post('/no-use-direct', async (req: Request, res: Response): Promise<void> => {

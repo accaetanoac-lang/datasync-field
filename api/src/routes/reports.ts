@@ -327,6 +327,60 @@ router.get('/bi', async (_req: Request, res: Response): Promise<void> => {
   }
 });
 
+router.get('/oc-adoption', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { from, to } = req.query as Record<string, string | undefined>;
+    const conditions: string[] = ['1=1'];
+    const params: unknown[] = [];
+    let idx = 1;
+    if (from) { conditions.push(`a.created_at >= $${idx++}`); params.push(new Date(from)); }
+    if (to)   { conditions.push(`a.created_at <= $${idx++}`); params.push(new Date(to)); }
+    const where = conditions.join(' AND ');
+
+    const [summary] = await query<{
+      has_app: string; uses_it: string; interested: string; explained: string; total_surveyed: string;
+    }>(
+      `SELECT
+         COUNT(*) FILTER (WHERE oc_has_app = TRUE)::int    AS has_app,
+         COUNT(*) FILTER (WHERE oc_uses_it = TRUE)::int    AS uses_it,
+         COUNT(*) FILTER (WHERE oc_interested = TRUE)::int AS interested,
+         COUNT(*) FILTER (WHERE oc_explained = TRUE)::int  AS explained,
+         COUNT(*) FILTER (WHERE oc_has_app IS NOT NULL)::int AS total_surveyed
+       FROM activities a WHERE ${where}`,
+      params
+    );
+
+    const byOrg = await query(
+      `SELECT o.name AS org_name,
+              COUNT(*) FILTER (WHERE a.oc_has_app = TRUE)::int    AS has_app,
+              COUNT(*) FILTER (WHERE a.oc_uses_it = TRUE)::int    AS uses_it,
+              COUNT(*) FILTER (WHERE a.oc_interested = TRUE)::int AS interested,
+              COUNT(*) FILTER (WHERE a.oc_has_app IS NOT NULL)::int AS total_surveyed
+       FROM activities a
+       LEFT JOIN organizations o ON o.id = a.org_id
+       WHERE ${where} AND a.oc_has_app IS NOT NULL
+       GROUP BY o.id, o.name
+       ORDER BY total_surveyed DESC
+       LIMIT 100`,
+      params
+    );
+
+    res.json({
+      summary: {
+        has_app:        Number(summary?.has_app ?? 0),
+        uses_it:        Number(summary?.uses_it ?? 0),
+        interested:     Number(summary?.interested ?? 0),
+        explained:      Number(summary?.explained ?? 0),
+        total_surveyed: Number(summary?.total_surveyed ?? 0),
+      },
+      by_org: byOrg,
+    });
+  } catch (err) {
+    console.error('/reports/oc-adoption error:', err);
+    res.status(500).json({ summary: { has_app: 0, uses_it: 0, interested: 0, explained: 0, total_surveyed: 0 }, by_org: [] });
+  }
+});
+
 router.get('/export', async (req: Request, res: Response): Promise<void> => {
   const format = (req.query.format as string) ?? 'csv';
   const rows = await query(

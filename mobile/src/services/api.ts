@@ -230,6 +230,44 @@ export async function sendGeofence(
   return res.data;
 }
 
+// Operations Center survey
+export async function submitOcSurvey(activityId: number, data: {
+  oc_has_app?: boolean | null;
+  oc_uses_it?: boolean | null;
+  oc_interested?: boolean | null;
+  oc_explained?: boolean;
+  oc_notes?: string;
+}): Promise<void> {
+  await api.put(`/activities/${activityId}/oc-survey`, data);
+}
+
+export async function uploadOcPhoto(activityId: number, photoUri: string): Promise<{ oc_photo_url: string }> {
+  const token = await AsyncStorage.getItem('auth_token');
+  const formData = new FormData();
+  formData.append('photo', {
+    uri: photoUri,
+    name: `oc_${activityId}_${Date.now()}.jpg`,
+    type: 'image/jpeg',
+  } as unknown as Blob);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30_000);
+  try {
+    const response = await fetch(`${BASE_URL}/activities/${activityId}/oc-photo`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token ?? ''}` },
+      body: formData,
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error((body as { error?: string }).error ?? `Upload failed: ${response.status}`);
+    }
+    return (await response.json()) as { oc_photo_url: string };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // Non-JD machine registry
 export async function searchNonJdMachine(serial: string): Promise<{
   found: boolean;

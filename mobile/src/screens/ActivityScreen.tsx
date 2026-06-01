@@ -43,10 +43,8 @@ export default function ActivityScreen() {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [elapsed, setElapsed]           = useState(0);
-  const [finalElapsed, setFinalElapsed] = useState(0); // captured at the moment of finish
   const [notes, setNotes]               = useState('');
   const [loading, setLoading]           = useState(false);
-  const [done, setDone]                 = useState(false);
   const [photoUri, setPhotoUri]         = useState<string | null>(null);
 
   function calcElapsed(): number {
@@ -101,9 +99,7 @@ export default function ActivityScreen() {
 
     if (intervalRef.current) clearInterval(intervalRef.current);
 
-    // Capture the true duration before async work starts
     const captured = calcElapsed();
-    setFinalElapsed(captured);
     setLoading(true);
 
     const net = await NetInfo.fetch();
@@ -126,18 +122,17 @@ export default function ActivityScreen() {
         // Always finish the activity regardless of photo result
         await finishActivity(activityId, notes || undefined);
         await AsyncStorage.removeItem(ACTIVE_ACTIVITY_KEY);
-
-        setDone(true);
+        const goToSurvey = () => navigation.navigate('OperationsCenterSurvey', {
+          activityId,
+          org,
+          doneTitle: 'Atividade concluída!',
+          doneSub: `Duração: ${formatElapsed(captured)}`,
+        });
         if (!photoUploaded) {
-          setTimeout(() => {
-            Alert.alert(
-              'Atividade concluída',
-              'Foto não enviada — verifique sua conexão e tente novamente pelo painel.',
-              [{ text: 'OK', onPress: () => navigation.navigate('MachineList', { org }) }],
-            );
-          }, 400);
+          Alert.alert('Atividade concluída', 'Foto não enviada — verifique sua conexão.',
+            [{ text: 'OK', onPress: goToSurvey }]);
         } else {
-          setTimeout(() => navigation.navigate('MachineList', { org }), 1500);
+          goToSurvey();
         }
       } else {
         await queueActivity({
@@ -153,8 +148,12 @@ export default function ActivityScreen() {
           synced_offline: true,
         });
         await AsyncStorage.removeItem(ACTIVE_ACTIVITY_KEY);
-        setDone(true);
-        setTimeout(() => navigation.navigate('MachineList', { org }), 1500);
+        navigation.navigate('OperationsCenterSurvey', {
+          activityId,
+          org,
+          doneTitle: 'Atividade concluída!',
+          doneSub: `Duração: ${formatElapsed(captured)}`,
+        });
       }
     } catch (err) {
       console.error('Finish activity error:', err);
@@ -165,16 +164,6 @@ export default function ActivityScreen() {
       setLoading(false);
     }
   };
-
-  if (done) {
-    return (
-      <View style={styles.center}>
-        <Text style={styles.doneIcon}>✓</Text>
-        <Text style={styles.doneText}>Atividade concluída!</Text>
-        <Text style={styles.doneSub}>Duração: {formatElapsed(finalElapsed)}</Text>
-      </View>
-    );
-  }
 
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
@@ -349,7 +338,4 @@ const styles = StyleSheet.create({
     color: '#ef4444',
     marginTop: -8,
   },
-  doneIcon: { fontSize: 72, color: JD_GREEN },
-  doneText: { fontSize: 22, fontWeight: '700', color: JD_GREEN, marginTop: 16 },
-  doneSub: { fontSize: 16, color: '#555', marginTop: 8 },
 });

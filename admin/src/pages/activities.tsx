@@ -251,7 +251,7 @@ export default function ActivitiesPage() {
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-100">
                 <tr>
-                  {['Data', 'Tipo', 'Técnico', 'Fazenda', 'Máquina', 'Método', 'Hor. Inf.', 'Diff h', 'Duração', 'Status', 'Resultado / Motivo', 'Foto Conexão', 'Foto Painel', 'OS'].map((h) => (
+                  {['Data', 'Tipo', 'Técnico', 'Fazenda', 'Máquina', 'Método', 'Hor. Inf.', 'Diff h', 'Duração', 'Status', 'Resultado / Motivo', 'OC', 'Foto Conexão', 'Foto Painel', 'OS'].map((h) => (
                     <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
                       {h}
                     </th>
@@ -298,6 +298,7 @@ export default function ActivitiesPage() {
                             )}
                           </div>
                         </td>
+                        <td className="px-4 py-3 text-gray-300">—</td>
                         <td className="px-4 py-3 text-gray-300">—</td>
                         <td className="px-4 py-3 text-gray-300">—</td>
                         <td className="px-4 py-3 text-gray-300">—</td>
@@ -359,6 +360,17 @@ export default function ActivitiesPage() {
                         )}
                       </td>
                       <td className="px-4 py-3">
+                        <div className="flex gap-1 text-sm">
+                          {a.oc_has_app === true  && <span title="Tem OC">📱</span>}
+                          {a.oc_uses_it === true   && <span title="Usa OC">👍</span>}
+                          {a.oc_interested === true && <span title="Quer aprender">🎓</span>}
+                          {a.oc_explained          && <span title="Técnico explicou">📷</span>}
+                          {a.oc_has_app === null && a.oc_uses_it === null && !a.oc_interested && !a.oc_explained && (
+                            <span className="text-gray-300 text-xs">—</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
                         {a.connectivity_photo_url ? (
                           <button
                             onClick={() => setPhotoModal({
@@ -413,7 +425,7 @@ export default function ActivitiesPage() {
 
                 {combined.length === 0 && (
                   <tr>
-                    <td colSpan={14} className="px-4 py-8 text-center text-gray-400">
+                    <td colSpan={15} className="px-4 py-8 text-center text-gray-400">
                       Nenhum registro encontrado.
                     </td>
                   </tr>

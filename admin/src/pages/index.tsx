@@ -25,6 +25,7 @@ export default function DashboardPage() {
   const [diagnosisActivities, setDiagnosisActivities] = useState<Activity[]>([]);
   const [impediments, setImpediments] = useState<Impediment[]>([]);
   const [nonJdCount, setNonJdCount]   = useState(0);
+  const [ocSummary, setOcSummary]     = useState<{ has_app: number; uses_it: number; interested: number; total_surveyed: number } | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -79,6 +80,10 @@ export default function DashboardPage() {
     api.get<{ id: number }[]>('/non-jd-machines')
       .then((r) => setNonJdCount(Array.isArray(r.data) ? r.data.length : 0))
       .catch(() => setNonJdCount(0));
+
+    api.get<{ summary: typeof ocSummary }>('/reports/oc-adoption')
+      .then((r) => setOcSummary(r.data?.summary ?? null))
+      .catch(() => setOcSummary(null));
   }, []);
 
   const refreshLive = useCallback(async () => {
@@ -539,7 +544,31 @@ export default function DashboardPage() {
         )}
       </section>
 
-      {/* Bloco 5 — Máquinas Não-JD KPI */}
+      {/* Bloco 5 — Operations Center Adoption */}
+      {ocSummary && ocSummary.total_surveyed > 0 && (
+        <section>
+          <h2 className="text-lg font-semibold text-gray-800 mb-3">📱 Adoção do Operations Center</h2>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {[
+              { emoji: '📱', label: 'OC Instalado',   n: ocSummary.has_app,    color: 'text-blue-600' },
+              { emoji: '👍', label: 'Usa Ativamente',  n: ocSummary.uses_it,    color: 'text-green-600' },
+              { emoji: '🎓', label: 'Quer Aprender',   n: ocSummary.interested, color: 'text-amber-600' },
+              { emoji: '🔢', label: 'Pesquisados',     n: ocSummary.total_surveyed, color: 'text-gray-700' },
+            ].map(({ emoji, label, n, color }) => (
+              <div key={label} className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+                <p className="text-xl">{emoji}</p>
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mt-1">{label}</p>
+                <p className={`text-2xl font-bold ${color} mt-0.5`}>{n}</p>
+                {ocSummary.total_surveyed > 0 && n !== ocSummary.total_surveyed && (
+                  <p className="text-xs text-gray-400">{Math.round((n / ocSummary.total_surveyed) * 100)}%</p>
+                )}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Bloco 6 — Máquinas Não-JD KPI */}
       {nonJdCount > 0 && (
         <section>
           <div className="bg-white border border-gray-100 rounded-xl p-5 shadow-sm flex items-center gap-4 max-w-xs">
