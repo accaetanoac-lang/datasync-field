@@ -105,6 +105,8 @@ router.get('/technicians', async (req: Request, res: Response): Promise<void> =>
           pen_drive_minutes: 0,
           total_minutes: 0,
           activities: [],
+          impediments: [],
+          impediments_count: 0,
         });
       }
       const tech = techMap.get(techId)!;
@@ -132,6 +134,62 @@ router.get('/technicians', async (req: Request, res: Response): Promise<void> =>
           if (row.method === 'pen_drive')          tech.pen_drive_minutes = Number(tech.pen_drive_minutes) + mins;
         }
         if (row.status === 'no_use') tech.machines_no_use = Number(tech.machines_no_use) + 1;
+      }
+    }
+
+    // Fetch impediments for the same date range and merge into techMap
+    const impConds: string[] = [];
+    const impParams: unknown[] = [];
+    let impIdx = 1;
+    if (fromDate) { impConds.push(`mi.recorded_at::date >= $${impIdx++}::date`); impParams.push(fromDate); }
+    if (toDate)   { impConds.push(`mi.recorded_at::date <= $${impIdx++}::date`); impParams.push(toDate); }
+    const impWhere = impConds.length ? `WHERE ${impConds.join(' AND ')}` : '';
+
+    const impRows = await query<Record<string, unknown>>(
+      `SELECT mi.id, mi.recorded_at, mi.reason, mi.custom_reason, mi.notes, mi.technician_id,
+              t.name AS tech_name, t.employee_id,
+              o.name AS org_name,
+              m.pin AS machine_pin, m.custom_name AS machine_custom_name
+       FROM machine_impediments mi
+       LEFT JOIN technicians t ON t.id = mi.technician_id
+       LEFT JOIN organizations o ON o.id = mi.org_id
+       LEFT JOIN machines m ON m.id = mi.machine_id
+       ${impWhere}
+       ORDER BY mi.recorded_at DESC`,
+      impParams
+    );
+
+    for (const imp of impRows) {
+      const techId = Number(imp.technician_id);
+      if (!techMap.has(techId) && imp.tech_name) {
+        techMap.set(techId, {
+          id: techId,
+          employee_id: imp.employee_id,
+          name: imp.tech_name,
+          total_visits: 0,
+          machines_collected: 0,
+          machines_no_use: 0,
+          starlink_minutes: 0,
+          pen_drive_minutes: 0,
+          total_minutes: 0,
+          activities: [],
+          impediments: [],
+          impediments_count: 0,
+        });
+      }
+      const tech = techMap.get(techId);
+      if (tech) {
+        (tech.impediments as unknown[]).push({
+          id: imp.id,
+          recorded_at: imp.recorded_at,
+          reason: imp.reason,
+          custom_reason: imp.custom_reason ?? null,
+          notes: imp.notes ?? null,
+          org_name: imp.org_name ?? null,
+          machine_pin: imp.machine_pin ?? null,
+          machine_custom_name: imp.machine_custom_name ?? null,
+        });
+        tech.impediments_count = Number(tech.impediments_count) + 1;
       }
     }
 

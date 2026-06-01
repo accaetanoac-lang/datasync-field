@@ -144,6 +144,17 @@ export interface TechnicianActivity {
   machine_custom_name?: string;
 }
 
+export interface TechnicianImpediment {
+  id: number;
+  recorded_at: string;
+  reason: string;
+  custom_reason?: string;
+  notes?: string;
+  org_name?: string;
+  machine_pin?: string;
+  machine_custom_name?: string;
+}
+
 export interface TechnicianDetail {
   id: number;
   employee_id: string;
@@ -155,6 +166,8 @@ export interface TechnicianDetail {
   pen_drive_minutes: number;
   total_minutes: number;
   activities: TechnicianActivity[];
+  impediments?: TechnicianImpediment[];
+  impediments_count?: number;
 }
 
 export interface TechnicianReport {
