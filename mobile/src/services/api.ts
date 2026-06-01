@@ -119,7 +119,7 @@ export async function finishDiagnosisActivity(
   id: number,
   data: {
     diagnosis_result: string;
-    diagnosis_checklist: boolean[];
+    diagnosis_checklist: boolean[] | Record<string, string | null>;
     total_pause_minutes: number;
     notes?: string;
   }

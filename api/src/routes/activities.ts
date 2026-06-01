@@ -402,6 +402,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     status,
     method,
     is_diagnosis,
+    diagnosis_result,
   } = req.query as Record<string, string>;
 
   const effectiveTechId =
@@ -438,6 +439,10 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
   if (is_diagnosis !== undefined) {
     conditions.push(`a.is_diagnosis = $${paramIdx++}`);
     params.push(is_diagnosis === 'true');
+  }
+  if (diagnosis_result) {
+    conditions.push(`a.diagnosis_result = $${paramIdx++}`);
+    params.push(diagnosis_result);
   }
 
   const rows = await query(

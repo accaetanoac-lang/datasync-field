@@ -171,6 +171,13 @@ export default function DashboardPage() {
 
         {/* Connectivity diagnostics KPI */}
         {diagnosisActivities.length > 0 && (() => {
+          const noModemActivities = diagnosisActivities.filter((a) => a.diagnosis_result === 'no_modem');
+          const noModemMachines = Array.from(
+            new Map(noModemActivities.filter((a) => a.machine_pin ?? a.machine_custom_name)
+              .map((a) => [a.machine_pin ?? a.machine_custom_name, a.machine_pin ?? a.machine_custom_name ?? '—'])
+            ).values()
+          );
+
           const uniqueMachines = Array.from(
             new Map(
               diagnosisActivities
@@ -183,43 +190,65 @@ export default function DashboardPage() {
           ).slice(0, 10);
 
           return (
-            <div className="mb-6 bg-orange-50 border border-orange-200 rounded-xl p-5">
-              <div className="flex items-center gap-3 mb-3">
-                <span className="text-2xl">🔧</span>
-                <div>
-                  <p className="font-bold text-orange-800 text-base">
-                    {diagnosisActivities.length} diagnóstico{diagnosisActivities.length !== 1 ? 's' : ''} de conectividade — últimos 30 dias
-                  </p>
-                  <p className="text-orange-700 text-sm mt-0.5">
-                    Máquinas com problema de conectividade identificado
-                  </p>
+            <div className="mb-6 space-y-4">
+              <div className="bg-orange-50 border border-orange-200 rounded-xl p-5">
+                <div className="flex items-center gap-3 mb-3">
+                  <span className="text-2xl">🔧</span>
+                  <div>
+                    <p className="font-bold text-orange-800 text-base">
+                      {diagnosisActivities.length} diagnóstico{diagnosisActivities.length !== 1 ? 's' : ''} de conectividade — últimos 30 dias
+                    </p>
+                    <p className="text-orange-700 text-sm mt-0.5">
+                      Máquinas com problema de conectividade identificado
+                    </p>
+                  </div>
+                  {noModemMachines.length > 0 && (
+                    <span className="ml-auto bg-blue-100 text-blue-700 text-xs font-bold px-3 py-1 rounded-full whitespace-nowrap">
+                      📡 {noModemMachines.length} sem modem JDLink
+                    </span>
+                  )}
                 </div>
-              </div>
-              {uniqueMachines.length > 0 && (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-orange-200">
-                        <th className="text-left py-2 text-orange-700 font-medium">Máquina</th>
-                        <th className="text-left py-2 text-orange-700 font-medium">Fazenda</th>
-                        <th className="text-left py-2 text-orange-700 font-medium">Último resultado</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {uniqueMachines.map((m, i) => (
-                        <tr key={i} className="border-b border-orange-100">
-                          <td className="py-1.5 font-mono text-xs text-gray-700">{m.pin}</td>
-                          <td className="py-1.5 text-gray-700">{m.org}</td>
-                          <td className="py-1.5">
-                            {m.result === 'resolved'    && <span className="text-green-700 font-medium">✅ Restabelecida</span>}
-                            {m.result === 'needs_return'&& <span className="text-yellow-700 font-medium">🔄 Requer retorno</span>}
-                            {m.result === 'unidentified'&& <span className="text-red-700 font-medium">❌ Não identificado</span>}
-                            {!m.result && <span className="text-gray-400">Em diagnóstico</span>}
-                          </td>
+                {uniqueMachines.length > 0 && (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-orange-200">
+                          <th className="text-left py-2 text-orange-700 font-medium">Máquina</th>
+                          <th className="text-left py-2 text-orange-700 font-medium">Fazenda</th>
+                          <th className="text-left py-2 text-orange-700 font-medium">Último resultado</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {uniqueMachines.map((m, i) => (
+                          <tr key={i} className="border-b border-orange-100">
+                            <td className="py-1.5 font-mono text-xs text-gray-700">{m.pin}</td>
+                            <td className="py-1.5 text-gray-700">{m.org}</td>
+                            <td className="py-1.5">
+                              {m.result === 'resolved'    && <span className="text-green-700 font-medium">✅ Restabelecida</span>}
+                              {m.result === 'needs_return'&& <span className="text-yellow-700 font-medium">🔄 Requer retorno</span>}
+                              {m.result === 'no_modem'    && <span className="text-blue-700 font-medium">📡 Sem Modem</span>}
+                              {m.result === 'unidentified'&& <span className="text-red-700 font-medium">❌ Não identificado</span>}
+                              {!m.result && <span className="text-gray-400">Em diagnóstico</span>}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {noModemMachines.length > 0 && (
+                <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-center gap-3">
+                  <span className="text-xl">📡</span>
+                  <div>
+                    <p className="font-semibold text-blue-800 text-sm">
+                      {noModemMachines.length} máquina{noModemMachines.length !== 1 ? 's' : ''} sem Modem JDLink instalado
+                    </p>
+                    <p className="text-blue-600 text-xs mt-0.5">
+                      Sem o JDLink M ou R não é possível conectar ao Operations Center — requer instalação ou OS aberta
+                    </p>
+                  </div>
                 </div>
               )}
             </div>

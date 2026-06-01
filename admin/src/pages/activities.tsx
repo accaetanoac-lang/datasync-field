@@ -31,6 +31,7 @@ export default function ActivitiesPage() {
       );
       if (activity_type === 'diagnosis') params.is_diagnosis = 'true';
       else if (activity_type === 'normal') params.is_diagnosis = 'false';
+      else if (activity_type === 'no_modem') { params.is_diagnosis = 'true'; params.diagnosis_result = 'no_modem'; }
       const res = await api.get<Activity[]>('/activities', { params });
       setActivities(Array.isArray(res.data) ? res.data : []);
       setLastUpdated(new Date());
@@ -78,6 +79,7 @@ export default function ActivitiesPage() {
     resolved:    { label: '✅ Restabelecida',    color: 'bg-green-100 text-green-700' },
     needs_return:{ label: '🔄 Requer retorno',   color: 'bg-yellow-100 text-yellow-700' },
     unidentified:{ label: '❌ Não identificado', color: 'bg-red-100 text-red-700' },
+    no_modem:    { label: '📡 Sem Modem',        color: 'bg-blue-100 text-blue-700' },
   };
 
   const inProgressCount = activities.filter((a) => a.status === 'in_progress').length;
@@ -176,6 +178,7 @@ export default function ActivitiesPage() {
           <option value="">Todos os tipos</option>
           <option value="diagnosis">🔧 Diagnósticos</option>
           <option value="normal">📡 Coletas normais</option>
+          <option value="no_modem">📡 Sem Modem JDLink</option>
         </select>
         <button
           onClick={load}

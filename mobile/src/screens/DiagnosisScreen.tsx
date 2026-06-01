@@ -25,7 +25,7 @@ type Route = RouteProp<RootStackParamList, 'Diagnosis'>;
 export const ACTIVE_DIAGNOSIS_KEY = 'active_diagnosis';
 export const ACTIVE_DIAGNOSIS_V2_KEY = 'active_diagnosis_v2';
 
-type Step = 'step1' | 'step2a' | 'step2b';
+type Step = 'step1' | 'step2a' | 'step2b' | 'step2c';
 type Step2bOption = 'resolved_now' | 'needs_return' | null;
 
 const JD_GREEN  = '#367C2B';
@@ -36,6 +36,18 @@ const CONNECTED_CAUSES = [
   'Sem sinal de internet na localização (resolvido com Starlink)',
   'Reinício do sistema resolveu o problema',
   'Outro',
+];
+
+const NO_MODEM_PREDISPOSED = [
+  { value: 'yes',     label: 'Sim — possui conector/chicote para instalação' },
+  { value: 'no',      label: 'Não — requer adaptação/instalação de chicote' },
+  { value: 'unknown', label: 'Não sei — verificação técnica necessária' },
+];
+
+const NO_MODEM_RECOMMENDATION = [
+  { value: 'recommend_install', label: 'Recomendar instalação do Modem JDLink ao cliente' },
+  { value: 'open_os',           label: 'Abrir OS de instalação do modem' },
+  { value: 'tech_verify',       label: 'Verificação técnica necessária antes de recomendar' },
 ];
 
 const DISCONNECTED_CAUSES = [
@@ -67,11 +79,13 @@ export default function DiagnosisScreen() {
   const [connChecklist, setConnChecklist]       = useState<boolean[]>(new Array(4).fill(false));
   const [disconnChecklist, setDisconnChecklist] = useState<boolean[]>(new Array(5).fill(false));
   const [selectedMethod, setSelectedMethod]     = useState<'starlink_data_sync' | 'pen_drive' | null>(null);
+  const [noModemPredisposed, setNoModemPredisposed]         = useState<string | null>(null);
+  const [noModemRecommendation, setNoModemRecommendation]   = useState<string | null>(null);
   const [notes, setNotes]       = useState('');
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [loading, setLoading]   = useState(false);
   const [done, setDone]         = useState(false);
-  const [doneResult, setDoneResult] = useState<'resolved' | 'needs_return' | null>(null);
+  const [doneResult, setDoneResult] = useState<'resolved' | 'needs_return' | 'no_modem' | null>(null);
   const [isPaused, setIsPaused] = useState(false);
   const [elapsed, setElapsed]   = useState(0);
 
@@ -177,6 +191,12 @@ export default function DiagnosisScreen() {
     persistState(false);
   };
 
+  const goToStep2c = () => {
+    stepRef.current = 'step2c';
+    setStep('step2c');
+    persistState(false);
+  };
+
   const selectStep2bOption = (opt: Step2bOption) => {
     step2bOptionRef.current = opt;
     setStep2bOption(opt);
@@ -227,7 +247,7 @@ export default function DiagnosisScreen() {
     }
   };
 
-  const handleFinish = async (diagnosisResult: 'resolved' | 'needs_return') => {
+  const handleFinish = async (diagnosisResult: 'resolved' | 'needs_return' | 'no_modem') => {
     if (!photoUri) {
       Alert.alert('Foto obrigatória', 'Tire uma foto antes de finalizar.');
       return;
@@ -236,11 +256,28 @@ export default function DiagnosisScreen() {
       Alert.alert('Notas obrigatórias', 'Descreva o problema encontrado e o que é necessário.');
       return;
     }
+    if (diagnosisResult === 'no_modem') {
+      if (!noModemPredisposed) {
+        Alert.alert('Campo obrigatório', 'Responda se a máquina é pré-disposta para instalação.');
+        return;
+      }
+      if (!noModemRecommendation) {
+        Alert.alert('Campo obrigatório', 'Selecione a recomendação para o cliente.');
+        return;
+      }
+      if (!notes.trim()) {
+        Alert.alert('Notas obrigatórias', 'Descreva as condições da máquina e observações.');
+        return;
+      }
+    }
 
     if (intervalRef.current) clearInterval(intervalRef.current);
     setLoading(true);
 
-    const checklist    = step === 'step2a' ? connChecklist : disconnChecklist;
+    const checklist: boolean[] | Record<string, string | null> =
+      diagnosisResult === 'no_modem'
+        ? { predisposed: noModemPredisposed, recommendation: noModemRecommendation }
+        : step === 'step2a' ? connChecklist : disconnChecklist;
     const totalPauseMin = Math.round(totalPauseMsRef.current / 60000);
     const net = await NetInfo.fetch();
     const isOnline = net.isConnected && net.isInternetReachable !== false;
@@ -288,15 +325,13 @@ export default function DiagnosisScreen() {
   };
 
   if (done) {
+    const doneTitle = doneResult === 'resolved' ? 'Coleta concluída!' : doneResult === 'no_modem' ? 'Registrado!' : 'Diagnóstico registrado!';
+    const doneSub   = doneResult === 'resolved' ? 'Atividade salva com sucesso' : doneResult === 'no_modem' ? 'Ausência de modem registrada com sucesso' : 'Retorno registrado com sucesso';
     return (
       <View style={styles.center}>
         <Text style={styles.doneIcon}>✓</Text>
-        <Text style={styles.doneText}>
-          {doneResult === 'resolved' ? 'Coleta concluída!' : 'Diagnóstico registrado!'}
-        </Text>
-        <Text style={styles.doneSub}>
-          {doneResult === 'resolved' ? 'Atividade salva com sucesso' : 'Retorno registrado com sucesso'}
-        </Text>
+        <Text style={styles.doneText}>{doneTitle}</Text>
+        <Text style={styles.doneSub}>{doneSub}</Text>
       </View>
     );
   }
@@ -336,6 +371,9 @@ export default function DiagnosisScreen() {
           </TouchableOpacity>
           <TouchableOpacity style={styles.notConnectedBtn} onPress={goToStep2b}>
             <Text style={styles.notConnectedBtnText}>Máquina não conectou</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.noModemBtn} onPress={goToStep2c}>
+            <Text style={styles.noModemBtnText}>Máquina sem modem JDLink instalado</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -530,6 +568,78 @@ export default function DiagnosisScreen() {
           </TouchableOpacity>
         </>
       )}
+      {/* ── STEP 2C: No Modem Installed ──────────────────────────────── */}
+      {step === 'step2c' && (
+        <>
+          <View style={styles.noModemSection}>
+            <Text style={styles.noModemTitle}>Máquina sem Modem JDLink</Text>
+            <Text style={styles.noModemSubtitle}>
+              Esta máquina não possui o Modem JDLink M ou R instalado
+            </Text>
+            <View style={styles.noModemInfoBox}>
+              <Text style={styles.noModemInfoText}>
+                O JDLink Modem (M ou R) é necessário para conectar a máquina ao John Deere
+                Operations Center. Sem ele, não é possível realizar a telemetria e o envio
+                automático de dados.
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>A máquina é pré-disposta para instalação do modem?</Text>
+            <RadioGroup
+              options={NO_MODEM_PREDISPOSED}
+              selected={noModemPredisposed}
+              onSelect={setNoModemPredisposed}
+            />
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Qual a recomendação?</Text>
+            <RadioGroup
+              options={NO_MODEM_RECOMMENDATION}
+              selected={noModemRecommendation}
+              onSelect={setNoModemRecommendation}
+            />
+          </View>
+
+          <TextInput
+            style={styles.notesInput}
+            value={notes}
+            onChangeText={setNotes}
+            placeholder="Descreva as condições da máquina e observações sobre a instalação do modem (obrigatório)..."
+            placeholderTextColor="#aaa"
+            multiline
+            numberOfLines={4}
+            textAlignVertical="top"
+          />
+
+          <PhotoBlock
+            photoUri={photoUri}
+            onTakePhoto={takePhoto}
+            label="Foto da máquina mostrando ausência do modem"
+            instruction="Fotografe o local onde o modem deveria estar instalado"
+          />
+
+          <TouchableOpacity
+            style={[
+              styles.finishBtn,
+              (!photoUri || !noModemPredisposed || !noModemRecommendation || !notes.trim()) && styles.finishBtnDisabled,
+            ]}
+            onPress={() => handleFinish('no_modem')}
+            disabled={loading || !photoUri || !noModemPredisposed || !noModemRecommendation || !notes.trim()}
+          >
+            {loading
+              ? <ActivityIndicator color="#fff" />
+              : <Text style={styles.finishBtnText}>Registrar e Finalizar</Text>}
+          </TouchableOpacity>
+          {(!noModemPredisposed || !noModemRecommendation) && (
+            <Text style={styles.hintText}>Responda as duas perguntas acima</Text>
+          )}
+          {!notes.trim() && <Text style={styles.hintText}>Notas obrigatórias para finalizar</Text>}
+          {!photoUri && <Text style={styles.hintText}>Foto obrigatória para finalizar</Text>}
+        </>
+      )}
     </ScrollView>
   );
 }
@@ -539,6 +649,34 @@ function InfoRow({ label, value, valueStyle }: { label: string; value: string; v
     <View style={styles.infoRow}>
       <Text style={styles.infoLabel}>{label}</Text>
       <Text style={[styles.infoValue, valueStyle]}>{value}</Text>
+    </View>
+  );
+}
+
+function RadioGroup({
+  options, selected, onSelect,
+}: {
+  options: { value: string; label: string }[];
+  selected: string | null;
+  onSelect: (v: string) => void;
+}) {
+  return (
+    <View style={styles.radioGroup}>
+      {options.map((opt) => (
+        <TouchableOpacity
+          key={opt.value}
+          style={[styles.radioItem, selected === opt.value && styles.radioItemSelected]}
+          onPress={() => onSelect(opt.value)}
+          activeOpacity={0.75}
+        >
+          <View style={[styles.radioCircle, selected === opt.value && styles.radioCircleSelected]}>
+            {selected === opt.value && <View style={styles.radioInner} />}
+          </View>
+          <Text style={[styles.radioLabel, selected === opt.value && styles.radioLabelSelected]}>
+            {opt.label}
+          </Text>
+        </TouchableOpacity>
+      ))}
     </View>
   );
 }
@@ -685,6 +823,32 @@ const styles = StyleSheet.create({
   finishBtnDisabled: { backgroundColor: '#9ca3af' },
   finishBtnText:     { color: '#fff', fontWeight: '700', fontSize: 17 },
   hintText:          { textAlign: 'center', fontSize: 13, color: '#ef4444', marginTop: -4 },
+
+  // Step 1 — No Modem button
+  noModemBtn: {
+    backgroundColor: '#1D4ED8', borderRadius: 10, padding: 16, alignItems: 'center',
+  },
+  noModemBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+
+  // Step 2C — No modem section
+  noModemSection: {
+    backgroundColor: '#EFF6FF', borderRadius: 12, padding: 16, gap: 10,
+    borderWidth: 1.5, borderColor: '#BFDBFE',
+  },
+  noModemTitle:    { fontSize: 15, fontWeight: '700', color: '#1E40AF' },
+  noModemSubtitle: { fontSize: 13, color: '#3B82F6' },
+  noModemInfoBox:  { backgroundColor: '#DBEAFE', borderRadius: 8, padding: 12 },
+  noModemInfoText: { fontSize: 13, color: '#1E40AF', lineHeight: 20 },
+
+  // Radio group
+  radioGroup:         { gap: 8 },
+  radioItem:          { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, borderRadius: 8, borderWidth: 1.5, borderColor: '#e5e7eb', backgroundColor: '#fff' },
+  radioItemSelected:  { borderColor: JD_GREEN, backgroundColor: '#f0fdf4' },
+  radioCircle:        { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: '#d1d5db', alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff' },
+  radioCircleSelected:{ borderColor: JD_GREEN },
+  radioInner:         { width: 10, height: 10, borderRadius: 5, backgroundColor: JD_GREEN },
+  radioLabel:         { flex: 1, fontSize: 14, color: '#374151', lineHeight: 20 },
+  radioLabelSelected: { color: '#1a1a1a', fontWeight: '600' },
 
   // Done
   doneIcon: { fontSize: 72, color: JD_GREEN },
