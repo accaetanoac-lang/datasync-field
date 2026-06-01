@@ -10,11 +10,8 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import * as ImagePicker from 'expo-image-picker';
 import NetInfo from '@react-native-community/netinfo';
 import {
-  startActivity,
-  startDiagnosisActivity,
   pauseActivity,
   resumeActivity,
-  finishActivity,
   finishDiagnosisActivity,
   uploadActivityPhoto,
 } from '../services/api';
@@ -24,30 +21,29 @@ import { formatDaysOffline } from '../types';
 type Nav = StackNavigationProp<RootStackParamList, 'Diagnosis'>;
 type Route = RouteProp<RootStackParamList, 'Diagnosis'>;
 
+// Keep old key exported for backward compat (AppNavigator may still reference it)
 export const ACTIVE_DIAGNOSIS_KEY = 'active_diagnosis';
+export const ACTIVE_DIAGNOSIS_V2_KEY = 'active_diagnosis_v2';
 
-type Resolution = 'resolved' | 'needs_return' | 'no_collection';
-type Phase = 'checklist' | 'timer' | 'static_form';
-
-type SavedDiagnosis = {
-  activityId: number;
-  startedAt: string;
-  totalPauseMs: number;
-  pausedAt: string | null;
-  checklist: boolean[];
-  resolution: Resolution;
-  method?: 'starlink_data_sync' | 'pen_drive';
-};
+type Step = 'step1' | 'step2a' | 'step2b';
+type Step2bOption = 'resolved_now' | 'needs_return' | null;
 
 const JD_GREEN  = '#367C2B';
 const JD_YELLOW = '#FFDE00';
 
-const CHECKLIST_ITEMS = [
-  'Máquina não foi ligada neste período',
-  'Sem sinal de internet na localização',
+const CONNECTED_CAUSES = [
+  'Máquina estava sem ignição ligada',
+  'Sem sinal de internet na localização (resolvido com Starlink)',
+  'Reinício do sistema resolveu o problema',
+  'Outro',
+];
+
+const DISCONNECTED_CAUSES = [
   'Modem JDLink sem energia/desconectado',
   'Problema elétrico no sistema de conectividade',
+  'Antena danificada ou desconectada',
   'Falha no firmware do modem',
+  'Problema identificado mas requer peça/suporte',
 ];
 
 function pad(n: number): string {
@@ -64,29 +60,28 @@ function formatElapsed(seconds: number): string {
 export default function DiagnosisScreen() {
   const navigation = useNavigation<Nav>();
   const route = useRoute<Route>();
-  const { machine, org, currentHours, hoursDiff } = route.params;
+  const { machine, org, currentHours, hoursDiff, activityId: routeActivityId, startedAt: routeStartedAt } = route.params;
 
-  const [checklist, setChecklist]     = useState<boolean[]>(new Array(5).fill(false));
-  const [resolution, setResolution]   = useState<Resolution | null>(null);
-  const [selectedMethod, setSelectedMethod] = useState<'starlink_data_sync' | 'pen_drive' | null>(null);
-  const [phase, setPhase]             = useState<Phase>('checklist');
-
+  const [step, setStep]                 = useState<Step>('step1');
+  const [step2bOption, setStep2bOption] = useState<Step2bOption>(null);
+  const [connChecklist, setConnChecklist]       = useState<boolean[]>(new Array(4).fill(false));
+  const [disconnChecklist, setDisconnChecklist] = useState<boolean[]>(new Array(5).fill(false));
+  const [selectedMethod, setSelectedMethod]     = useState<'starlink_data_sync' | 'pen_drive' | null>(null);
   const [notes, setNotes]       = useState('');
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [loading, setLoading]   = useState(false);
   const [done, setDone]         = useState(false);
-
-  const [elapsed, setElapsed]   = useState(0);
+  const [doneResult, setDoneResult] = useState<'resolved' | 'needs_return' | null>(null);
   const [isPaused, setIsPaused] = useState(false);
+  const [elapsed, setElapsed]   = useState(0);
 
-  const startTimestampRef = useRef<number>(0);
-  const totalPauseMsRef   = useRef<number>(0);
-  const pausedAtRef       = useRef<number | null>(null);
-  const activityIdRef     = useRef<number>(0);
-  const intervalRef       = useRef<ReturnType<typeof setInterval> | null>(null);
-  const resolutionRef     = useRef<Resolution | null>(null);
-  const checklistRef      = useRef<boolean[]>(new Array(5).fill(false));
-  const methodRef         = useRef<'starlink_data_sync' | 'pen_drive' | null>(null);
+  const startTimestampRef  = useRef<number>(Date.parse(routeStartedAt));
+  const totalPauseMsRef    = useRef<number>(0);
+  const pausedAtRef        = useRef<number | null>(null);
+  const activityIdRef      = useRef<number>(routeActivityId);
+  const intervalRef        = useRef<ReturnType<typeof setInterval> | null>(null);
+  const stepRef            = useRef<Step>('step1');
+  const step2bOptionRef    = useRef<Step2bOption>(null);
 
   const calcElapsed = useCallback((): number => {
     const pausedMs = isPaused && pausedAtRef.current
@@ -103,25 +98,27 @@ export default function DiagnosisScreen() {
     intervalRef.current = setInterval(() => setElapsed(calcElapsed()), 1000);
   }, [calcElapsed]);
 
-  // Restore saved state on mount (crash recovery)
+  // Mount: restore saved state if same activity, then start timer
   useEffect(() => {
-    AsyncStorage.getItem(ACTIVE_DIAGNOSIS_KEY).then((raw) => {
-      if (!raw) return;
+    // Remove stale old-format key to prevent double-alert in AppNavigator
+    AsyncStorage.removeItem(ACTIVE_DIAGNOSIS_KEY).catch(() => {});
+
+    AsyncStorage.getItem(ACTIVE_DIAGNOSIS_V2_KEY).then((raw) => {
+      if (!raw) { startInterval(); return; }
       try {
-        const saved: SavedDiagnosis = JSON.parse(raw);
-        if (!saved.activityId) return;
+        const saved = JSON.parse(raw);
+        if (saved.activityId !== routeActivityId) { startInterval(); return; }
 
-        startTimestampRef.current = Date.parse(saved.startedAt);
-        totalPauseMsRef.current   = saved.totalPauseMs;
-        activityIdRef.current     = saved.activityId;
-        resolutionRef.current     = saved.resolution;
-        checklistRef.current      = saved.checklist;
-        methodRef.current         = saved.method ?? null;
+        totalPauseMsRef.current = saved.totalPausedMs ?? 0;
 
-        setResolution(saved.resolution);
-        setChecklist(saved.checklist);
-        if (saved.method) setSelectedMethod(saved.method);
-        setPhase('timer');
+        if (saved.step && saved.step !== 'step1') {
+          setStep(saved.step);
+          stepRef.current = saved.step;
+        }
+        if (saved.step2bOption) {
+          setStep2bOption(saved.step2bOption);
+          step2bOptionRef.current = saved.step2bOption;
+        }
 
         if (saved.pausedAt) {
           pausedAtRef.current = Date.parse(saved.pausedAt);
@@ -130,91 +127,62 @@ export default function DiagnosisScreen() {
         } else {
           startInterval();
         }
-      } catch { /* ignore malformed */ }
-    }).catch(() => {});
+      } catch {
+        startInterval();
+      }
+    }).catch(() => startInterval());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state: AppStateStatus) => {
-      if (state === 'active' && phase === 'timer' && !isPaused) {
-        setElapsed(calcElapsed());
-      }
+      if (state === 'active' && !isPaused) setElapsed(calcElapsed());
     });
     return () => sub.remove();
-  }, [phase, isPaused, calcElapsed]);
+  }, [isPaused, calcElapsed]);
 
   useEffect(() => {
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
   }, []);
 
   const persistState = useCallback(async (paused: boolean) => {
-    const data: SavedDiagnosis = {
-      activityId:   activityIdRef.current,
-      startedAt:    new Date(startTimestampRef.current).toISOString(),
-      totalPauseMs: totalPauseMsRef.current,
+    const data = {
+      activityId:    activityIdRef.current,
+      startedAt:     routeStartedAt,
+      machinePin:    machine.pin ?? machine.custom_name ?? '',
+      orgName:       org.name,
+      machine,
+      org,
+      currentHours,
+      hoursDiff,
+      step:          stepRef.current,
+      step2bOption:  step2bOptionRef.current,
+      totalPausedMs: totalPauseMsRef.current,
       pausedAt: paused && pausedAtRef.current
         ? new Date(pausedAtRef.current).toISOString()
         : null,
-      checklist:  checklistRef.current,
-      resolution: resolutionRef.current!,
-      method:     methodRef.current ?? undefined,
     };
-    await AsyncStorage.setItem(ACTIVE_DIAGNOSIS_KEY, JSON.stringify(data)).catch(() => {});
-  }, []);
+    await AsyncStorage.setItem(ACTIVE_DIAGNOSIS_V2_KEY, JSON.stringify(data)).catch(() => {});
+  }, [machine, org, currentHours, hoursDiff, routeStartedAt]);
 
-  // Start timer — options A (resolved) and B (needs_return)
-  const handleStart = async () => {
-    if (!resolution) return;
-    if (resolution === 'resolved' && !selectedMethod) {
-      Alert.alert('Selecione o método', 'Escolha Starlink + Data Sync ou Pen Drive.');
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const net = await NetInfo.fetch();
-      const isOnline = net.isConnected && net.isInternetReachable !== false;
-
-      let id = -1;
-      if (isOnline) {
-        if (resolution === 'resolved') {
-          const act = await startActivity({
-            org_id: org.id,
-            machine_id: machine.id,
-            method: selectedMethod!,
-            current_hours: currentHours,
-          });
-          id = act.id;
-        } else {
-          const act = await startDiagnosisActivity({ org_id: org.id, machine_id: machine.id });
-          id = act.id;
-        }
-      }
-
-      startTimestampRef.current = Date.now();
-      totalPauseMsRef.current   = 0;
-      pausedAtRef.current       = null;
-      activityIdRef.current     = id;
-      resolutionRef.current     = resolution;
-      checklistRef.current      = checklist;
-      methodRef.current         = selectedMethod;
-
-      setPhase('timer');
-      await persistState(false);
-      startInterval();
-    } catch {
-      Alert.alert('Erro', 'Não foi possível iniciar.');
-    } finally {
-      setLoading(false);
-    }
+  const goToStep2a = () => {
+    stepRef.current = 'step2a';
+    setStep('step2a');
+    persistState(false);
   };
 
-  // Option C: skip timer, go directly to form
-  const handleGoToStaticForm = () => {
-    resolutionRef.current = 'no_collection';
-    checklistRef.current  = checklist;
-    setPhase('static_form');
+  const goToStep2b = () => {
+    stepRef.current = 'step2b';
+    setStep('step2b');
+    persistState(false);
+  };
+
+  const selectStep2bOption = (opt: Step2bOption) => {
+    step2bOptionRef.current = opt;
+    setStep2bOption(opt);
+    setPhotoUri(null);
+    setSelectedMethod(null);
+    persistState(false);
   };
 
   const handlePause = async () => {
@@ -223,11 +191,9 @@ export default function DiagnosisScreen() {
     setIsPaused(true);
     setElapsed(calcElapsed());
     await persistState(true);
-    if (activityIdRef.current > 0) {
-      const net = await NetInfo.fetch();
-      if (net.isConnected && net.isInternetReachable !== false) {
-        pauseActivity(activityIdRef.current).catch(() => {});
-      }
+    const net = await NetInfo.fetch();
+    if (net.isConnected && net.isInternetReachable !== false && activityIdRef.current > 0) {
+      pauseActivity(activityIdRef.current).catch(() => {});
     }
   };
 
@@ -239,11 +205,9 @@ export default function DiagnosisScreen() {
     setIsPaused(false);
     await persistState(false);
     startInterval();
-    if (activityIdRef.current > 0) {
-      const net = await NetInfo.fetch();
-      if (net.isConnected && net.isInternetReachable !== false) {
-        resumeActivity(activityIdRef.current).catch(() => {});
-      }
+    const net = await NetInfo.fetch();
+    if (net.isConnected && net.isInternetReachable !== false && activityIdRef.current > 0) {
+      resumeActivity(activityIdRef.current).catch(() => {});
     }
   };
 
@@ -263,21 +227,21 @@ export default function DiagnosisScreen() {
     }
   };
 
-  // Finish timer phase (options A and B)
-  const handleFinishTimer = async () => {
+  const handleFinish = async (diagnosisResult: 'resolved' | 'needs_return') => {
     if (!photoUri) {
       Alert.alert('Foto obrigatória', 'Tire uma foto antes de finalizar.');
       return;
     }
-    if (resolutionRef.current === 'needs_return' && !notes.trim()) {
-      Alert.alert('Notas obrigatórias', 'Descreva o que precisa ser feito.');
+    if (diagnosisResult === 'needs_return' && !notes.trim()) {
+      Alert.alert('Notas obrigatórias', 'Descreva o problema encontrado e o que é necessário.');
       return;
     }
 
     if (intervalRef.current) clearInterval(intervalRef.current);
     setLoading(true);
 
-    const totalPauseMinutes = Math.round(totalPauseMsRef.current / 60000);
+    const checklist    = step === 'step2a' ? connChecklist : disconnChecklist;
+    const totalPauseMin = Math.round(totalPauseMsRef.current / 60000);
     const net = await NetInfo.fetch();
     const isOnline = net.isConnected && net.isInternetReachable !== false;
 
@@ -289,26 +253,20 @@ export default function DiagnosisScreen() {
           catch { /* retry */ }
         }
 
-        if (resolutionRef.current === 'resolved') {
-          const checkedCauses = checklistRef.current
-            .map((v, i) => v ? CHECKLIST_ITEMS[i] : null)
-            .filter(Boolean).join('; ');
-          await finishActivity(activityIdRef.current, checkedCauses || undefined);
-        } else {
-          await finishDiagnosisActivity(activityIdRef.current, {
-            diagnosis_result: 'needs_return',
-            diagnosis_checklist: checklistRef.current,
-            total_pause_minutes: totalPauseMinutes,
-            notes: notes.trim() || undefined,
-          });
-        }
+        await finishDiagnosisActivity(activityIdRef.current, {
+          diagnosis_result:   diagnosisResult,
+          diagnosis_checklist: checklist,
+          total_pause_minutes: totalPauseMin,
+          notes: diagnosisResult === 'needs_return' ? notes.trim() : undefined,
+        });
 
-        await AsyncStorage.removeItem(ACTIVE_DIAGNOSIS_KEY);
+        await AsyncStorage.removeItem(ACTIVE_DIAGNOSIS_V2_KEY);
+        setDoneResult(diagnosisResult);
         setDone(true);
 
         if (!photoUploaded) {
           setTimeout(() => Alert.alert(
-            'Concluído',
+            diagnosisResult === 'resolved' ? 'Concluído' : 'Diagnóstico registrado',
             'Foto não enviada — verifique sua conexão.',
             [{ text: 'OK', onPress: () => navigation.navigate('MachineList', { org }) }],
           ), 400);
@@ -316,7 +274,8 @@ export default function DiagnosisScreen() {
           setTimeout(() => navigation.navigate('MachineList', { org }), 1500);
         }
       } else {
-        await AsyncStorage.removeItem(ACTIVE_DIAGNOSIS_KEY);
+        await AsyncStorage.removeItem(ACTIVE_DIAGNOSIS_V2_KEY);
+        setDoneResult(diagnosisResult);
         setDone(true);
         setTimeout(() => navigation.navigate('MachineList', { org }), 1500);
       }
@@ -328,75 +287,15 @@ export default function DiagnosisScreen() {
     }
   };
 
-  // Finish static form (option C — no timer)
-  const handleFinishStaticForm = async () => {
-    if (!photoUri) {
-      Alert.alert('Foto obrigatória', 'Tire uma foto antes de registrar.');
-      return;
-    }
-    if (!notes.trim()) {
-      Alert.alert('Notas obrigatórias', 'Descreva o que foi encontrado.');
-      return;
-    }
-
-    setLoading(true);
-    const net = await NetInfo.fetch();
-    const isOnline = net.isConnected && net.isInternetReachable !== false;
-
-    try {
-      if (isOnline) {
-        const act = await startDiagnosisActivity({ org_id: org.id, machine_id: machine.id });
-
-        let photoUploaded = false;
-        for (let attempt = 1; attempt <= 2; attempt++) {
-          try { await uploadActivityPhoto(act.id, photoUri); photoUploaded = true; break; }
-          catch { /* retry */ }
-        }
-
-        await finishDiagnosisActivity(act.id, {
-          diagnosis_result: 'needs_return',
-          diagnosis_checklist: checklistRef.current,
-          total_pause_minutes: 0,
-          notes: notes.trim(),
-        });
-
-        setDone(true);
-        if (!photoUploaded) {
-          setTimeout(() => Alert.alert(
-            'Registrado',
-            'Foto não enviada — verifique sua conexão.',
-            [{ text: 'OK', onPress: () => navigation.navigate('MachineList', { org }) }],
-          ), 400);
-        } else {
-          setTimeout(() => navigation.navigate('MachineList', { org }), 1500);
-        }
-      } else {
-        setDone(true);
-        setTimeout(() => navigation.navigate('MachineList', { org }), 1500);
-      }
-    } catch {
-      Alert.alert('Erro', 'Não foi possível salvar o diagnóstico.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const toggleChecklist = (i: number) => {
-    const next = [...checklist];
-    next[i] = !next[i];
-    setChecklist(next);
-    checklistRef.current = next;
-  };
-
   if (done) {
     return (
       <View style={styles.center}>
         <Text style={styles.doneIcon}>✓</Text>
         <Text style={styles.doneText}>
-          {resolution === 'resolved' ? 'Coleta concluída!' : 'Diagnóstico registrado!'}
+          {doneResult === 'resolved' ? 'Coleta concluída!' : 'Diagnóstico registrado!'}
         </Text>
         <Text style={styles.doneSub}>
-          {resolution === 'resolved' ? 'Atividade salva com sucesso' : 'Retorno registrado com sucesso'}
+          {doneResult === 'resolved' ? 'Atividade salva com sucesso' : 'Retorno registrado com sucesso'}
         </Text>
       </View>
     );
@@ -410,54 +309,139 @@ export default function DiagnosisScreen() {
         <Text style={styles.cardTitle}>Informações da Máquina</Text>
         <InfoRow label="Chassi / PIN"         value={machine.pin ?? machine.custom_name ?? 'N/A'} />
         <InfoRow label="Modelo"               value={machine.modelo ?? 'N/A'} />
-        <InfoRow
-          label="Dias offline"
-          value={formatDaysOffline(machine.days_offline)}
-          valueStyle={styles.yellowText}
-        />
-        <InfoRow label="Horímetro registrado" value={machine.machine_hours != null ? `${machine.machine_hours} h` : 'N/A'} />
+        <InfoRow label="Dias offline"         value={formatDaysOffline(machine.days_offline)} valueStyle={styles.yellowText} />
         <InfoRow label="Horímetro atual"      value={`${currentHours} h`} />
         <InfoRow label="Diferença"            value={`${hoursDiff.toFixed(1)} h`} />
       </View>
 
-      {/* Possible causes checklist — always visible */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Possíveis causas</Text>
-        <Text style={styles.sectionSub}>Marque o que se aplica à situação</Text>
-        {CHECKLIST_ITEMS.map((item, i) => (
-          <TouchableOpacity
-            key={i}
-            style={styles.checkItem}
-            onPress={() => phase === 'checklist' && toggleChecklist(i)}
-            disabled={phase !== 'checklist'}
-          >
-            <View style={[styles.checkbox, checklist[i] && styles.checkboxChecked]}>
-              {checklist[i] && <Text style={styles.checkmark}>✓</Text>}
-            </View>
-            <Text style={[styles.checkLabel, checklist[i] && styles.checkLabelChecked]}>
-              {item}
-            </Text>
-          </TouchableOpacity>
-        ))}
+      {/* Timer — always visible */}
+      <View style={[styles.timerBar, isPaused && styles.timerBarPaused]}>
+        <Text style={styles.timerBarLabel}>Tempo:</Text>
+        <Text style={[styles.timerBarValue, isPaused && styles.timerBarValuePaused]}>
+          {formatElapsed(elapsed)}
+        </Text>
+        {isPaused && <Text style={styles.pausedBadge}>PAUSADO</Text>}
       </View>
 
-      {/* PHASE: checklist — resolution options */}
-      {phase === 'checklist' && (
+      {/* ── STEP 1: Ignition + Connectivity Check ─────────────────────── */}
+      {step === 'step1' && (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>O que fazer agora?</Text>
+          <Text style={styles.stepBadge}>Passo 1 de 2</Text>
+          <Text style={styles.sectionTitle}>Ligar a ignição e verificar conectividade</Text>
+          <Text style={styles.sectionDesc}>
+            Ligue a chave de ignição da máquina e aguarde o sistema inicializar
+          </Text>
+          <TouchableOpacity style={styles.connectedBtn} onPress={goToStep2a}>
+            <Text style={styles.connectedBtnText}>Máquina conectou!</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.notConnectedBtn} onPress={goToStep2b}>
+            <Text style={styles.notConnectedBtnText}>Máquina não conectou</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
-          {/* Option A — resolved */}
+      {/* ── STEP 2A: Machine Connected ────────────────────────────────── */}
+      {step === 'step2a' && (
+        <>
+          <View style={styles.successSection}>
+            <Text style={styles.successTitle}>Máquina conectada com sucesso!</Text>
+            <Text style={styles.sectionSubLabel}>Marque o que se aplicava antes da conexão:</Text>
+            {CONNECTED_CAUSES.map((item, i) => (
+              <TouchableOpacity
+                key={i}
+                style={styles.checkItem}
+                onPress={() => {
+                  const next = [...connChecklist];
+                  next[i] = !next[i];
+                  setConnChecklist(next);
+                }}
+              >
+                <View style={[styles.checkbox, connChecklist[i] && styles.checkboxChecked]}>
+                  {connChecklist[i] && <Text style={styles.checkmark}>✓</Text>}
+                </View>
+                <Text style={[styles.checkLabel, connChecklist[i] && styles.checkLabelChecked]}>
+                  {item}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Método de coleta</Text>
+            <View style={styles.methodRow}>
+              {(['starlink_data_sync', 'pen_drive'] as const).map((m) => (
+                <TouchableOpacity
+                  key={m}
+                  style={[styles.methodBtn, selectedMethod === m && styles.methodBtnActive]}
+                  onPress={() => setSelectedMethod(m)}
+                >
+                  <Text style={[styles.methodBtnText, selectedMethod === m && styles.methodBtnTextActive]}>
+                    {m === 'starlink_data_sync' ? 'Starlink + Data Sync' : 'Pen Drive'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          <PhotoBlock
+            photoUri={photoUri}
+            onTakePhoto={takePhoto}
+            label="Foto do painel mostrando conexão ativa"
+            instruction="Fotografe o painel mostrando o símbolo de conexão ativa"
+          />
+
           <TouchableOpacity
-            style={[styles.optionCard, resolution === 'resolved' && styles.optionCardActive]}
-            onPress={() => { setResolution('resolved'); setSelectedMethod(null); }}
+            style={[styles.finishBtn, (!photoUri || !selectedMethod) && styles.finishBtnDisabled]}
+            onPress={() => handleFinish('resolved')}
+            disabled={loading || !photoUri || !selectedMethod}
+          >
+            {loading
+              ? <ActivityIndicator color="#fff" />
+              : <Text style={styles.finishBtnText}>Finalizar Coleta</Text>}
+          </TouchableOpacity>
+          {!selectedMethod && <Text style={styles.hintText}>Selecione o método de coleta</Text>}
+          {!photoUri && <Text style={styles.hintText}>Foto obrigatória para finalizar</Text>}
+        </>
+      )}
+
+      {/* ── STEP 2B: Machine NOT Connected ───────────────────────────── */}
+      {step === 'step2b' && (
+        <>
+          <View style={styles.warningSection}>
+            <Text style={styles.warningTitle}>Máquina sem conectividade</Text>
+            <Text style={styles.sectionSubLabel}>Marque as causas identificadas:</Text>
+            {DISCONNECTED_CAUSES.map((item, i) => (
+              <TouchableOpacity
+                key={i}
+                style={styles.checkItem}
+                onPress={() => {
+                  const next = [...disconnChecklist];
+                  next[i] = !next[i];
+                  setDisconnChecklist(next);
+                }}
+              >
+                <View style={[styles.checkbox, disconnChecklist[i] && styles.checkboxChecked]}>
+                  {disconnChecklist[i] && <Text style={styles.checkmark}>✓</Text>}
+                </View>
+                <Text style={[styles.checkLabel, disconnChecklist[i] && styles.checkLabelChecked]}>
+                  {item}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {/* Sub-option A: resolved now */}
+          <TouchableOpacity
+            style={[styles.optionCard, step2bOption === 'resolved_now' && styles.optionCardActive]}
+            onPress={() => selectStep2bOption('resolved_now')}
             activeOpacity={0.85}
           >
-            <Text style={styles.optionLabel}>✅ Problema resolvido — iniciar coleta agora</Text>
-            <Text style={styles.optionDesc}>O técnico corrigiu o problema e a máquina está pronta para coleta</Text>
+            <Text style={styles.optionTitle}>Problema resolvido agora</Text>
+            <Text style={styles.optionDesc}>O problema foi corrigido e a máquina está conectada</Text>
 
-            {resolution === 'resolved' && (
-              <View style={styles.optionExpanded}>
-                <Text style={styles.methodLabel}>Método de coleta</Text>
+            {step2bOption === 'resolved_now' && (
+              <View style={styles.optionBody}>
+                <Text style={styles.sectionTitle}>Método de coleta</Text>
                 <View style={styles.methodRow}>
                   {(['starlink_data_sync', 'pen_drive'] as const).map((m) => (
                     <TouchableOpacity
@@ -471,175 +455,79 @@ export default function DiagnosisScreen() {
                     </TouchableOpacity>
                   ))}
                 </View>
-                {selectedMethod && (
-                  <TouchableOpacity
-                    style={[styles.startBtn, styles.startBtnGreen, loading && styles.startBtnDisabled]}
-                    onPress={handleStart}
-                    disabled={loading}
-                  >
-                    {loading
-                      ? <ActivityIndicator color="#fff" />
-                      : <Text style={styles.startBtnText}>Iniciar Coleta ▶</Text>}
-                  </TouchableOpacity>
-                )}
-              </View>
-            )}
-          </TouchableOpacity>
-
-          {/* Option B — needs_return with timer */}
-          <TouchableOpacity
-            style={[styles.optionCard, resolution === 'needs_return' && styles.optionCardActive]}
-            onPress={() => { setResolution('needs_return'); setSelectedMethod(null); }}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.optionLabel}>🔄 Requer retorno com peça/suporte técnico</Text>
-            <Text style={styles.optionDesc}>Documentar o diagnóstico com timer e registrar o que precisa ser feito</Text>
-
-            {resolution === 'needs_return' && (
-              <View style={styles.optionExpanded}>
+                <PhotoBlock
+                  photoUri={photoUri}
+                  onTakePhoto={takePhoto}
+                  label="Foto do painel mostrando conexão ativa"
+                  instruction="Fotografe o painel mostrando o símbolo de conexão ativa"
+                />
                 <TouchableOpacity
-                  style={[styles.startBtn, styles.startBtnBlack, loading && styles.startBtnDisabled]}
-                  onPress={handleStart}
-                  disabled={loading}
+                  style={[styles.finishBtn, (!photoUri || !selectedMethod) && styles.finishBtnDisabled]}
+                  onPress={() => handleFinish('resolved')}
+                  disabled={loading || !photoUri || !selectedMethod}
                 >
                   {loading
                     ? <ActivityIndicator color="#fff" />
-                    : <Text style={styles.startBtnText}>Iniciar Diagnóstico com Timer ▶</Text>}
+                    : <Text style={styles.finishBtnText}>Finalizar Coleta</Text>}
                 </TouchableOpacity>
+                {!selectedMethod && <Text style={styles.hintText}>Selecione o método de coleta</Text>}
+                {!photoUri && <Text style={styles.hintText}>Foto obrigatória para finalizar</Text>}
               </View>
             )}
           </TouchableOpacity>
 
-          {/* Option C — no_collection, no timer */}
+          {/* Sub-option B: needs return */}
           <TouchableOpacity
-            style={[styles.optionCard, resolution === 'no_collection' && styles.optionCardActive]}
-            onPress={() => { setResolution('no_collection'); setSelectedMethod(null); }}
+            style={[styles.optionCard, step2bOption === 'needs_return' && styles.optionCardActive]}
+            onPress={() => selectStep2bOption('needs_return')}
             activeOpacity={0.85}
           >
-            <Text style={styles.optionLabel}>📋 Registrar diagnóstico sem coleta</Text>
-            <Text style={styles.optionDesc}>Registrar apenas as causas encontradas, sem iniciar coleta</Text>
+            <Text style={styles.optionTitle}>Requer retorno com peça/suporte</Text>
+            <Text style={styles.optionDesc}>Não foi possível resolver — documentar e pausar se necessário</Text>
 
-            {resolution === 'no_collection' && (
-              <View style={styles.optionExpanded}>
+            {step2bOption === 'needs_return' && !isPaused && (
+              <View style={styles.optionBody}>
+                <TextInput
+                  style={styles.notesInput}
+                  value={notes}
+                  onChangeText={setNotes}
+                  placeholder="Descreva o problema encontrado e o que é necessário (obrigatório)..."
+                  placeholderTextColor="#aaa"
+                  multiline
+                  numberOfLines={4}
+                  textAlignVertical="top"
+                />
+                <PhotoBlock
+                  photoUri={photoUri}
+                  onTakePhoto={takePhoto}
+                  label="Foto do modem/máquina mostrando o problema"
+                  instruction="Fotografe o componente com problema"
+                />
+                <TouchableOpacity style={styles.pauseBtn} onPress={handlePause}>
+                  <Text style={styles.pauseBtnText}>Pausar — retornar outro dia</Text>
+                </TouchableOpacity>
                 <TouchableOpacity
-                  style={[styles.startBtn, styles.startBtnGray]}
-                  onPress={handleGoToStaticForm}
+                  style={[styles.finishBtn, (!photoUri || !notes.trim()) && styles.finishBtnDisabled]}
+                  onPress={() => handleFinish('needs_return')}
+                  disabled={loading || !photoUri || !notes.trim()}
                 >
-                  <Text style={styles.startBtnText}>Continuar →</Text>
+                  {loading
+                    ? <ActivityIndicator color="#fff" />
+                    : <Text style={styles.finishBtnText}>Finalizar Diagnóstico</Text>}
+                </TouchableOpacity>
+                {!notes.trim() && <Text style={styles.hintText}>Notas obrigatórias para finalizar</Text>}
+                {!photoUri && <Text style={styles.hintText}>Foto obrigatória para finalizar</Text>}
+              </View>
+            )}
+
+            {step2bOption === 'needs_return' && isPaused && (
+              <View style={styles.optionBody}>
+                <TouchableOpacity style={styles.resumeBtn} onPress={handleResume}>
+                  <Text style={styles.pauseBtnText}>Retomar diagnóstico</Text>
                 </TouchableOpacity>
               </View>
             )}
           </TouchableOpacity>
-        </View>
-      )}
-
-      {/* PHASE: timer (options A and B) */}
-      {phase === 'timer' && (
-        <>
-          <View style={styles.resolutionBadge}>
-            <Text style={styles.resolutionBadgeText}>
-              {resolution === 'resolved' ? '✅ Coleta em andamento' : '🔄 Diagnóstico em andamento'}
-            </Text>
-          </View>
-
-          <View style={[styles.timerBox, isPaused && styles.timerBoxPaused]}>
-            <Text style={styles.timerLabel}>
-              {isPaused ? 'PAUSADO' : resolution === 'resolved' ? 'Tempo de coleta' : 'Tempo de diagnóstico'}
-            </Text>
-            <Text style={[styles.timer, isPaused && styles.timerPaused]}>
-              {formatElapsed(elapsed)}
-            </Text>
-          </View>
-
-          {/* Pause/Resume only for option B */}
-          {resolution === 'needs_return' && (
-            <TouchableOpacity
-              style={isPaused ? styles.resumeBtn : styles.pauseBtn}
-              onPress={isPaused ? handleResume : handlePause}
-            >
-              <Text style={styles.pauseBtnText}>
-                {isPaused ? '▶ Retomar diagnóstico' : '⏸ Pausar (retornar outro dia)'}
-              </Text>
-            </TouchableOpacity>
-          )}
-
-          {/* Notes — required for option B, hidden while paused */}
-          {resolution === 'needs_return' && !isPaused && (
-            <TextInput
-              style={styles.notesInput}
-              value={notes}
-              onChangeText={setNotes}
-              placeholder="Descreva o que precisa ser feito (obrigatório)..."
-              placeholderTextColor="#aaa"
-              multiline
-              numberOfLines={4}
-              textAlignVertical="top"
-            />
-          )}
-
-          {!isPaused && (
-            <PhotoBlock
-              photoUri={photoUri}
-              onTakePhoto={takePhoto}
-              label={resolution === 'resolved' ? 'Fotografar painel (coleta concluída)' : 'Fotografar modem/máquina'}
-            />
-          )}
-
-          {!isPaused && (
-            <TouchableOpacity
-              style={[styles.finishBtn, !photoUri && styles.finishBtnDisabled]}
-              onPress={handleFinishTimer}
-              disabled={loading || !photoUri}
-            >
-              {loading
-                ? <ActivityIndicator color="#fff" />
-                : <Text style={styles.finishBtnText}>
-                    {resolution === 'resolved' ? 'Finalizar Coleta' : 'Finalizar Diagnóstico'}
-                  </Text>}
-            </TouchableOpacity>
-          )}
-          {!photoUri && !isPaused && (
-            <Text style={styles.photoRequired}>Foto obrigatória para finalizar</Text>
-          )}
-        </>
-      )}
-
-      {/* PHASE: static form (option C) */}
-      {phase === 'static_form' && (
-        <>
-          <View style={styles.resolutionBadge}>
-            <Text style={styles.resolutionBadgeText}>📋 Registrar diagnóstico</Text>
-          </View>
-
-          <TextInput
-            style={styles.notesInput}
-            value={notes}
-            onChangeText={setNotes}
-            placeholder="Descreva o que foi encontrado (obrigatório)..."
-            placeholderTextColor="#aaa"
-            multiline
-            numberOfLines={5}
-            textAlignVertical="top"
-          />
-
-          <PhotoBlock
-            photoUri={photoUri}
-            onTakePhoto={takePhoto}
-            label="Fotografar modem/máquina"
-          />
-
-          <TouchableOpacity
-            style={[styles.finishBtn, !photoUri && styles.finishBtnDisabled]}
-            onPress={handleFinishStaticForm}
-            disabled={loading || !photoUri}
-          >
-            {loading
-              ? <ActivityIndicator color="#fff" />
-              : <Text style={styles.finishBtnText}>Registrar Diagnóstico</Text>}
-          </TouchableOpacity>
-          {!photoUri && (
-            <Text style={styles.photoRequired}>Foto obrigatória para registrar</Text>
-          )}
         </>
       )}
     </ScrollView>
@@ -655,10 +543,13 @@ function InfoRow({ label, value, valueStyle }: { label: string; value: string; v
   );
 }
 
-function PhotoBlock({ photoUri, onTakePhoto, label }: {
+function PhotoBlock({
+  photoUri, onTakePhoto, label, instruction,
+}: {
   photoUri: string | null;
   onTakePhoto: () => void;
   label: string;
+  instruction: string;
 }) {
   return (
     <View style={styles.photoSection}>
@@ -675,7 +566,7 @@ function PhotoBlock({ photoUri, onTakePhoto, label }: {
             <Text style={styles.cameraIcon}>📷</Text>
             <Text style={styles.cameraButtonText}>{label}</Text>
           </TouchableOpacity>
-          <Text style={styles.photoInstruction}>Foto obrigatória para finalizar</Text>
+          <Text style={styles.photoInstruction}>{instruction}</Text>
         </View>
       )}
     </View>
@@ -695,68 +586,86 @@ const styles = StyleSheet.create({
   infoValue:   { color: '#fff', fontWeight: '700', fontSize: 13 },
   yellowText:  { color: JD_YELLOW, fontWeight: '800' },
 
-  // Sections
-  section:      { backgroundColor: '#fff', borderRadius: 12, padding: 16, gap: 10, elevation: 1, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 2 },
-  sectionTitle: { fontSize: 15, fontWeight: '700', color: '#1a1a1a', marginBottom: 2 },
-  sectionSub:   { fontSize: 13, color: '#888', marginBottom: 4 },
+  // Timer bar
+  timerBar: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: '#1a1a1a', borderRadius: 10, padding: 12,
+  },
+  timerBarPaused:      { backgroundColor: '#374151' },
+  timerBarLabel:       { color: '#aaa', fontSize: 13 },
+  timerBarValue:       { fontSize: 22, fontWeight: '700', color: JD_YELLOW, fontVariant: ['tabular-nums'], letterSpacing: 1 },
+  timerBarValuePaused: { color: '#9ca3af' },
+  pausedBadge:         { marginLeft: 'auto', backgroundColor: '#6B7280', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, color: '#fff', fontSize: 11, fontWeight: '700' },
+
+  // Generic section
+  section: {
+    backgroundColor: '#fff', borderRadius: 12, padding: 16, gap: 10,
+    elevation: 1, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 2,
+  },
+  stepBadge:      { alignSelf: 'flex-start', backgroundColor: JD_GREEN, color: '#fff', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, fontSize: 11, fontWeight: '700', overflow: 'hidden' },
+  sectionTitle:   { fontSize: 15, fontWeight: '700', color: '#1a1a1a' },
+  sectionDesc:    { fontSize: 13, color: '#6b7280', lineHeight: 20 },
+  sectionSubLabel:{ fontSize: 13, color: '#888', marginBottom: 4 },
+
+  // Step 1 buttons
+  connectedBtn: {
+    backgroundColor: JD_GREEN, borderRadius: 10, padding: 16, alignItems: 'center', marginTop: 4,
+  },
+  connectedBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  notConnectedBtn: {
+    backgroundColor: '#1a1a1a', borderRadius: 10, padding: 16, alignItems: 'center',
+  },
+  notConnectedBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+
+  // Step 2A success section
+  successSection: {
+    backgroundColor: '#f0fdf4', borderRadius: 12, padding: 16, gap: 10,
+    borderWidth: 1.5, borderColor: '#bbf7d0',
+  },
+  successTitle: { fontSize: 15, fontWeight: '700', color: '#166534' },
+
+  // Step 2B warning section
+  warningSection: {
+    backgroundColor: '#FEF3C7', borderRadius: 12, padding: 16, gap: 10,
+    borderWidth: 1.5, borderColor: '#FDE68A',
+  },
+  warningTitle: { fontSize: 15, fontWeight: '700', color: '#92400E' },
 
   // Checklist
-  checkItem:         { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6 },
+  checkItem:         { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 5 },
   checkbox:          { width: 22, height: 22, borderRadius: 5, borderWidth: 2, borderColor: '#d1d5db', alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff' },
   checkboxChecked:   { backgroundColor: JD_GREEN, borderColor: JD_GREEN },
   checkmark:         { color: '#fff', fontWeight: '900', fontSize: 13 },
   checkLabel:        { flex: 1, fontSize: 14, color: '#374151' },
   checkLabelChecked: { color: '#1a1a1a', fontWeight: '600' },
 
-  // Option cards
-  optionCard:       { borderWidth: 1.5, borderColor: '#e5e7eb', borderRadius: 12, padding: 14, gap: 6 },
+  // Option cards (step 2B sub-options)
+  optionCard: {
+    backgroundColor: '#fff', borderRadius: 12, padding: 14, gap: 4,
+    borderWidth: 1.5, borderColor: '#e5e7eb',
+  },
   optionCardActive: { borderColor: JD_GREEN, backgroundColor: '#f0fdf4' },
-  optionLabel:      { fontSize: 14, fontWeight: '700', color: '#1a1a1a' },
+  optionTitle:      { fontSize: 14, fontWeight: '700', color: '#1a1a1a' },
   optionDesc:       { fontSize: 13, color: '#6b7280' },
-  optionExpanded:   { gap: 10, marginTop: 8, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#e5e7eb' },
+  optionBody:       { gap: 10, marginTop: 8, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#e5e7eb' },
 
   // Method selector
-  methodLabel:         { fontSize: 13, fontWeight: '600', color: '#555' },
   methodRow:           { flexDirection: 'row', gap: 8 },
   methodBtn:           { flex: 1, borderWidth: 1.5, borderColor: '#ddd', borderRadius: 8, padding: 12, alignItems: 'center' },
   methodBtnActive:     { borderColor: JD_GREEN, backgroundColor: '#f0fdf4' },
   methodBtnText:       { color: '#555', fontWeight: '600', fontSize: 12, textAlign: 'center' },
   methodBtnTextActive: { color: JD_GREEN },
 
-  // Start buttons
-  startBtn:         { borderRadius: 10, padding: 14, alignItems: 'center' },
-  startBtnGreen:    { backgroundColor: JD_GREEN },
-  startBtnBlack:    { backgroundColor: '#1a1a1a' },
-  startBtnGray:     { backgroundColor: '#6B7280' },
-  startBtnDisabled: { opacity: 0.5 },
-  startBtnText:     { color: '#fff', fontWeight: '700', fontSize: 15 },
-
-  // Resolution badge
-  resolutionBadge:     { backgroundColor: '#1a1a1a', borderRadius: 10, padding: 12, alignItems: 'center' },
-  resolutionBadgeText: { color: '#fff', fontWeight: '600', fontSize: 14 },
-
-  // Timer
-  timerBox:       { backgroundColor: '#1a1a1a', borderRadius: 12, padding: 24, alignItems: 'center' },
-  timerBoxPaused: { backgroundColor: '#374151' },
-  timerLabel:     { color: '#aaa', fontSize: 13, marginBottom: 8 },
-  timer:          { fontSize: 52, fontWeight: '700', color: JD_YELLOW, fontVariant: ['tabular-nums'], letterSpacing: 2 },
-  timerPaused:    { color: '#9ca3af' },
-
   // Pause / Resume
-  pauseBtn:     { backgroundColor: '#6B7280', borderRadius: 10, padding: 16, alignItems: 'center' },
-  resumeBtn:    { backgroundColor: JD_GREEN, borderRadius: 10, padding: 16, alignItems: 'center' },
+  pauseBtn:     { backgroundColor: '#6B7280', borderRadius: 10, padding: 14, alignItems: 'center' },
+  resumeBtn:    { backgroundColor: JD_GREEN,  borderRadius: 10, padding: 16, alignItems: 'center' },
   pauseBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
 
   // Notes
   notesInput: {
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    padding: 14,
-    fontSize: 15,
-    color: '#1a1a1a',
-    minHeight: 100,
-    borderWidth: 1,
-    borderColor: '#ddd',
+    backgroundColor: '#fff', borderRadius: 8, padding: 14,
+    fontSize: 15, color: '#1a1a1a', minHeight: 100,
+    borderWidth: 1, borderColor: '#ddd',
   },
 
   // Photo
@@ -771,11 +680,11 @@ const styles = StyleSheet.create({
   retakeButton:     { borderWidth: 1.5, borderColor: '#ddd', borderRadius: 8, paddingVertical: 8, paddingHorizontal: 20 },
   retakeText:       { color: '#555', fontWeight: '600', fontSize: 14 },
 
-  // Finish
+  // Finish button
   finishBtn:         { backgroundColor: '#1a1a1a', borderRadius: 10, padding: 18, alignItems: 'center' },
   finishBtnDisabled: { backgroundColor: '#9ca3af' },
   finishBtnText:     { color: '#fff', fontWeight: '700', fontSize: 17 },
-  photoRequired:     { textAlign: 'center', fontSize: 13, color: '#ef4444', marginTop: -4 },
+  hintText:          { textAlign: 'center', fontSize: 13, color: '#ef4444', marginTop: -4 },
 
   // Done
   doneIcon: { fontSize: 72, color: JD_GREEN },

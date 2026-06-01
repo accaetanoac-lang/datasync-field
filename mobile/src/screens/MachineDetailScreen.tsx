@@ -5,12 +5,15 @@ import {
 } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
-import { createNoUseActivity } from '../services/api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { createNoUseActivity, startDiagnosisActivity } from '../services/api';
 import { queueActivity } from '../services/sync';
 import { getCurrentLocation } from '../services/geolocation';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { formatDaysOffline } from '../types';
 import NetInfo from '@react-native-community/netinfo';
+
+const ACTIVE_DIAGNOSIS_V2_KEY = 'active_diagnosis_v2';
 
 type Nav = StackNavigationProp<RootStackParamList, 'MachineDetail'>;
 type Route = RouteProp<RootStackParamList, 'MachineDetail'>;
@@ -44,7 +47,7 @@ export default function MachineDetailScreen() {
     }
   };
 
-  const handleHoursSubmit = () => {
+  const handleHoursSubmit = async () => {
     const val = parseFloat(currentHours);
     if (isNaN(val)) {
       setHoursError('Digite um valor numérico válido.');
@@ -60,7 +63,34 @@ export default function MachineDetailScreen() {
     const hoursDiff = val - lastHours;
 
     if (hoursDiff >= 10) {
-      navigation.navigate('Diagnosis', { machine, org, currentHours: val, hoursDiff });
+      setLoading(true);
+      try {
+        const act = await startDiagnosisActivity({
+          org_id: org.id,
+          machine_id: machine.id,
+          current_hours: val,
+        });
+        const startedAt = act.started_at ?? new Date().toISOString();
+        await AsyncStorage.setItem(ACTIVE_DIAGNOSIS_V2_KEY, JSON.stringify({
+          activityId: act.id,
+          startedAt,
+          machinePin: machine.pin ?? machine.custom_name ?? '',
+          orgName: org.name,
+          machine,
+          org,
+          currentHours: val,
+          hoursDiff,
+          step: 'step1',
+          step2bOption: null,
+          totalPausedMs: 0,
+          pausedAt: null,
+        }));
+        navigation.navigate('Diagnosis', { machine, org, currentHours: val, hoursDiff, activityId: act.id, startedAt });
+      } catch {
+        Alert.alert('Erro', 'Não foi possível iniciar o diagnóstico. Verifique sua conexão e tente novamente.');
+      } finally {
+        setLoading(false);
+      }
       return;
     }
 
@@ -149,11 +179,13 @@ export default function MachineDetailScreen() {
           onSubmitEditing={handleHoursSubmit}
         />
         <TouchableOpacity
-          style={[styles.confirmBtn, hoursError ? styles.confirmBtnDisabled : null]}
+          style={[styles.confirmBtn, (hoursError || loading) ? styles.confirmBtnDisabled : null]}
           onPress={handleHoursSubmit}
-          disabled={!!hoursError}
+          disabled={!!hoursError || loading}
         >
-          <Text style={styles.confirmBtnText}>OK</Text>
+          {loading
+            ? <ActivityIndicator color="#fff" size="small" />
+            : <Text style={styles.confirmBtnText}>OK</Text>}
         </TouchableOpacity>
       </View>
       {hoursError && (

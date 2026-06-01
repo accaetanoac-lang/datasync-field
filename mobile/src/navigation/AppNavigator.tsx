@@ -11,7 +11,7 @@ import SearchOrgScreen from '../screens/SearchOrgScreen';
 import MachineListScreen from '../screens/MachineListScreen';
 import MachineDetailScreen from '../screens/MachineDetailScreen';
 import ActivityScreen, { ACTIVE_ACTIVITY_KEY } from '../screens/ActivityScreen';
-import DiagnosisScreen from '../screens/DiagnosisScreen';
+import DiagnosisScreen, { ACTIVE_DIAGNOSIS_V2_KEY } from '../screens/DiagnosisScreen';
 import ConnectivityDiagnosisScreen from '../screens/ConnectivityDiagnosisScreen';
 import NonJDMachineScreen from '../screens/NonJDMachineScreen';
 import { Organization, Machine } from '../types';
@@ -41,6 +41,8 @@ export type RootStackParamList = {
     org: Organization;
     currentHours: number;
     hoursDiff: number;
+    activityId: number;
+    startedAt: string;
   };
   ConnectivityDiagnosis: {
     machine: Machine;
@@ -130,6 +132,58 @@ export default function AppNavigator() {
     }
 
     checkActiveActivity();
+    return () => { cancelled = true; };
+  }, [isAuthenticated, loading]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // After login: if technician force-closed during an active diagnosis, offer to resume
+  useEffect(() => {
+    if (loading || !isAuthenticated) return;
+
+    let cancelled = false;
+
+    async function checkActiveDiagnosis() {
+      try {
+        const raw = await AsyncStorage.getItem(ACTIVE_DIAGNOSIS_V2_KEY);
+        if (!raw || cancelled) return;
+
+        const saved = JSON.parse(raw);
+        if (!saved.activityId || !saved.startedAt || !saved.machine || !saved.org) return;
+
+        const machineName = saved.machinePin || saved.machine.pin || saved.machine.custom_name || '—';
+
+        setTimeout(() => {
+          if (cancelled || !navigationRef.isReady()) return;
+          Alert.alert(
+            'Diagnóstico em andamento',
+            `Você tem um diagnóstico ativo em ${machineName} (${saved.orgName || saved.org.name}). Deseja retornar?`,
+            [
+              {
+                text: 'Descartar',
+                style: 'destructive',
+                onPress: () => AsyncStorage.removeItem(ACTIVE_DIAGNOSIS_V2_KEY).catch(() => {}),
+              },
+              {
+                text: 'Retornar',
+                onPress: () =>
+                  navigationRef.navigate('Diagnosis', {
+                    machine: saved.machine,
+                    org: saved.org,
+                    currentHours: saved.currentHours ?? 0,
+                    hoursDiff: saved.hoursDiff ?? 0,
+                    activityId: saved.activityId,
+                    startedAt: saved.startedAt,
+                  }),
+              },
+            ],
+            { cancelable: false },
+          );
+        }, 900);
+      } catch {
+        // Ignore malformed data
+      }
+    }
+
+    checkActiveDiagnosis();
     return () => { cancelled = true; };
   }, [isAuthenticated, loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
