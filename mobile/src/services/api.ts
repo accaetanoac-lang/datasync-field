@@ -230,6 +230,18 @@ export async function sendGeofence(
   return res.data;
 }
 
+// Impediments
+export async function recordImpediment(machineId: number, data: {
+  reason: string;
+  custom_reason?: string;
+  notes?: string;
+  tech_lat?: number;
+  tech_lng?: number;
+}): Promise<{ id: number; recorded_at: string }> {
+  const res = await api.post<{ id: number; recorded_at: string }>(`/machines/${machineId}/impediment`, data);
+  return res.data;
+}
+
 // Push notifications
 export async function sendPushToken(push_token: string): Promise<void> {
   await api.post('/technicians/push-token', { push_token });

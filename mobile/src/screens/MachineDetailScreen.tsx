@@ -172,6 +172,14 @@ export default function MachineDetailScreen() {
         />
       </View>
 
+      {/* Cannot act — no activity created, no timer */}
+      <TouchableOpacity
+        style={styles.cannotActBtn}
+        onPress={() => navigation.navigate('CannotAct', { machine, org })}
+      >
+        <Text style={styles.cannotActBtnText}>⚠️ Não é possível atuar nesta máquina agora</Text>
+      </TouchableOpacity>
+
       {/* Horímetro input */}
       <Text style={styles.label}>Horímetro atual (confira no painel)</Text>
       <View style={styles.hoursRow}>
@@ -301,6 +309,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   noUseButtonText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  cannotActBtn: {
+    backgroundColor: '#FEF3C7', borderRadius: 8, padding: 14,
+    borderWidth: 1.5, borderColor: '#FDE68A', alignItems: 'center',
+  },
+  cannotActBtnText: { color: '#92400E', fontWeight: '700', fontSize: 14 },
+
   successIcon: { fontSize: 64, color: JD_GREEN },
   successText: { fontSize: 18, color: JD_GREEN, fontWeight: '600', marginTop: 16 },
 });

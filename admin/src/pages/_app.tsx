@@ -14,6 +14,7 @@ const NAV = [
   { href: '/technician-report', label: 'Relatório Técnicos' },
   { href: '/organizations', label: 'Organizações' },
   { href: '/visit-management', label: 'Gestão de Visitas' },
+  { href: '/impediments', label: 'Impedimentos' },
   { href: '/settings', label: 'Configurações' },
 ];
 

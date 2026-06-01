@@ -49,6 +49,33 @@ router.get('/:pin', async (req: Request, res: Response): Promise<void> => {
   res.json(machine);
 });
 
+router.post('/:id/impediment', async (req: Request, res: Response): Promise<void> => {
+  const machineId = parseInt(req.params.id, 10);
+  if (isNaN(machineId)) { res.status(400).json({ error: 'Invalid machine id' }); return; }
+
+  const { reason, custom_reason, notes, tech_lat, tech_lng } = req.body as {
+    reason?: string;
+    custom_reason?: string;
+    notes?: string;
+    tech_lat?: number;
+    tech_lng?: number;
+  };
+
+  if (!reason) { res.status(400).json({ error: 'reason is required' }); return; }
+
+  const machine = await queryOne<{ org_id: number | null }>('SELECT org_id FROM machines WHERE id = $1', [machineId]);
+  if (!machine) { res.status(404).json({ error: 'Machine not found' }); return; }
+
+  const rows = await query<{ id: number; recorded_at: Date }>(
+    `INSERT INTO machine_impediments (machine_id, technician_id, org_id, reason, custom_reason, notes, tech_lat, tech_lng)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     RETURNING id, recorded_at`,
+    [machineId, req.user!.id, machine.org_id, reason, custom_reason ?? null, notes ?? null, tech_lat ?? null, tech_lng ?? null]
+  );
+
+  res.status(201).json(rows[0]);
+});
+
 router.post('/non-jd', async (req: Request, res: Response): Promise<void> => {
   const { org_id, custom_name, custom_description } = req.body as {
     org_id?: number;

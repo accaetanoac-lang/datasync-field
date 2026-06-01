@@ -201,6 +201,19 @@ export interface VisitManagement {
   org_id?: number;
 }
 
+export interface Impediment {
+  id: number;
+  recorded_at: string;
+  reason: string;
+  custom_reason?: string;
+  notes?: string;
+  technician_name?: string;
+  employee_id?: string;
+  org_name?: string;
+  machine_pin?: string;
+  machine_custom_name?: string;
+}
+
 export interface UploadHistory {
   id: number;
   processed_at: string;

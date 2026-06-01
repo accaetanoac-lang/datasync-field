@@ -16,6 +16,7 @@ import ConnectivityCheckScreen from '../screens/ConnectivityCheckScreen';
 import DataCollectionScreen from '../screens/DataCollectionScreen';
 import ConnectivityDiagnosisScreen from '../screens/ConnectivityDiagnosisScreen';
 import NonJDMachineScreen from '../screens/NonJDMachineScreen';
+import CannotActScreen from '../screens/CannotActScreen';
 import { Organization, Machine } from '../types';
 
 type SavedActivity = {
@@ -70,6 +71,7 @@ export type RootStackParamList = {
     currentHours: number;
   };
   NonJDMachine: { org?: Organization; prefillPin?: string };
+  CannotAct: { machine: Machine; org: Organization };
 };
 
 const Stack = createStackNavigator<RootStackParamList>();
@@ -292,6 +294,11 @@ export default function AppNavigator() {
               name="NonJDMachine"
               component={NonJDMachineScreen}
               options={{ title: 'Máquina Não John Deere' }}
+            />
+            <Stack.Screen
+              name="CannotAct"
+              component={CannotActScreen}
+              options={{ title: '⚠️ Registrar Impedimento' }}
             />
           </>
         )}

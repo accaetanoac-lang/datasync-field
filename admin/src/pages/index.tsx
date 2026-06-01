@@ -8,7 +8,7 @@ import GapBars from '../components/charts/GapBars';
 import EngagementDonut from '../components/charts/EngagementDonut';
 import TechHoursChart from '../components/charts/TechHoursChart';
 import ExportButton from '../components/ExportButton';
-import { SummaryStats, BiRow, TechnicianReport, Machine, FieldVisitNoCollection, Activity, VisitManagement } from '../types';
+import { SummaryStats, BiRow, TechnicianReport, Machine, FieldVisitNoCollection, Activity, VisitManagement, Impediment } from '../types';
 
 const POLL_MS = 30_000;
 
@@ -23,6 +23,7 @@ export default function DashboardPage() {
   const [liveActivities, setLiveActivities] = useState<Activity[]>([]);
   const [visitData, setVisitData] = useState<VisitManagement[]>([]);
   const [diagnosisActivities, setDiagnosisActivities] = useState<Activity[]>([]);
+  const [impediments, setImpediments] = useState<Impediment[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -68,6 +69,11 @@ export default function DashboardPage() {
       setDiagnosisActivities(Array.isArray(diag.data) ? diag.data : []);
     }).catch(console.error)
       .finally(() => setLoading(false));
+
+    const from30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    api.get<Impediment[]>('/impediments', { params: { from: from30d } })
+      .then((r) => setImpediments(Array.isArray(r.data) ? r.data : []))
+      .catch(() => setImpediments([]));
   }, []);
 
   const refreshLive = useCallback(async () => {
@@ -527,6 +533,49 @@ export default function DashboardPage() {
           </div>
         )}
       </section>
+
+      {/* Bloco 5 — Impedimentos */}
+      {impediments.length > 0 && (() => {
+        const REASON_LABELS: Record<string, string> = {
+          maintenance:  'Em manutenção',
+          absent:       'Máquina ausente',
+          in_operation: 'Em operação',
+          outros:       'Outros',
+        };
+        const reasonCounts = impediments.reduce<Record<string, number>>((acc, imp) => {
+          acc[imp.reason] = (acc[imp.reason] ?? 0) + 1;
+          return acc;
+        }, {});
+        const topReasons = Object.entries(reasonCounts)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 3);
+
+        return (
+          <section>
+            <h2 className="text-lg font-semibold text-gray-800 mb-3">Impedimentos — últimos 30 dias</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 flex items-center gap-4">
+                <span className="text-4xl">⚠️</span>
+                <div>
+                  <p className="text-3xl font-bold text-amber-800">{impediments.length}</p>
+                  <p className="text-sm text-amber-700">impedimento{impediments.length !== 1 ? 's' : ''} registrado{impediments.length !== 1 ? 's' : ''}</p>
+                </div>
+              </div>
+              <div className="bg-white border border-gray-100 rounded-xl p-5 shadow-sm">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Motivos mais frequentes</p>
+                <div className="space-y-2">
+                  {topReasons.map(([reason, count]) => (
+                    <div key={reason} className="flex items-center justify-between">
+                      <span className="text-sm text-gray-700">{REASON_LABELS[reason] ?? reason}</span>
+                      <span className="text-sm font-bold text-amber-700 bg-amber-100 px-2.5 py-0.5 rounded-full">{count}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </section>
+        );
+      })()}
     </div>
   );
 }

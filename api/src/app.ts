@@ -11,6 +11,7 @@ import reportsRouter from './routes/reports';
 import visitsRouter from './routes/visits';
 import techniciansRouter from './routes/technicians';
 import versionRouter from './routes/version';
+import impedimentsRouter from './routes/impediments';
 
 dotenv.config();
 
@@ -53,6 +54,7 @@ app.use('/reports', reportsRouter);
 app.use('/visits', visitsRouter);
 app.use('/technicians', techniciansRouter);
 app.use('/version', versionRouter);
+app.use('/impediments', impedimentsRouter);
 
 // /api/* prefix routes — CloudFront proxies admin dashboard calls here over HTTPS
 app.get('/api/health', (_req, res) => {
@@ -67,6 +69,7 @@ app.use('/api/reports', reportsRouter);
 app.use('/api/visits', visitsRouter);
 app.use('/api/technicians', techniciansRouter);
 app.use('/api/version', versionRouter);
+app.use('/api/impediments', impedimentsRouter);
 
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not found' });
