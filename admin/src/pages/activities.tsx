@@ -199,7 +199,7 @@ export default function ActivitiesPage() {
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-100">
                 <tr>
-                  {['Data', 'Tipo', 'Técnico', 'Fazenda', 'Máquina', 'Método', 'Hor. Inf.', 'Diff h', 'Duração', 'Status', 'Resultado', 'Foto', 'OS'].map((h) => (
+                  {['Data', 'Tipo', 'Técnico', 'Fazenda', 'Máquina', 'Método', 'Hor. Inf.', 'Diff h', 'Duração', 'Status', 'Resultado', 'Foto Conexão', 'Foto Painel', 'OS'].map((h) => (
                     <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
                       {h}
                     </th>
@@ -262,14 +262,34 @@ export default function ActivitiesPage() {
                       )}
                     </td>
                     <td className="px-4 py-3">
+                      {a.connectivity_photo_url ? (
+                        <button
+                          onClick={() => setPhotoModal({
+                            url: a.pre_signed_connectivity_photo_url ?? a.connectivity_photo_url!,
+                            caption: `Foto Conexão — ${a.technician_name ?? '—'} — ${new Date(a.connectivity_photo_taken_at ?? a.created_at).toLocaleDateString('pt-BR')}`,
+                          })}
+                          className="block"
+                          title="Ver foto de conexão"
+                        >
+                          <img
+                            src={a.pre_signed_connectivity_photo_url ?? a.connectivity_photo_url}
+                            alt="conexão"
+                            className="w-10 h-10 object-cover rounded border border-blue-200 hover:opacity-80 transition-opacity"
+                          />
+                        </button>
+                      ) : (
+                        <span className="text-gray-300 text-xs">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
                       {a.photo_url ? (
                         <button
                           onClick={() => setPhotoModal({
                             url: a.pre_signed_photo_url ?? a.photo_url!,
-                            caption: `Painel da máquina — ${a.technician_name ?? '—'} — ${new Date(a.photo_taken_at ?? a.created_at).toLocaleDateString('pt-BR')}`,
+                            caption: `Foto Painel — ${a.technician_name ?? '—'} — ${new Date(a.photo_taken_at ?? a.created_at).toLocaleDateString('pt-BR')}`,
                           })}
                           className="block"
-                          title="Ver foto completa"
+                          title="Ver foto do painel"
                         >
                           <img
                             src={a.pre_signed_photo_url ?? a.photo_url}
@@ -296,7 +316,7 @@ export default function ActivitiesPage() {
                 ))}
                 {activities.length === 0 && (
                   <tr>
-                    <td colSpan={13} className="px-4 py-8 text-center text-gray-400">
+                    <td colSpan={14} className="px-4 py-8 text-center text-gray-400">
                       Nenhuma atividade encontrada.
                     </td>
                   </tr>

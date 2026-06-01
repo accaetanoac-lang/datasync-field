@@ -11,7 +11,9 @@ import SearchOrgScreen from '../screens/SearchOrgScreen';
 import MachineListScreen from '../screens/MachineListScreen';
 import MachineDetailScreen from '../screens/MachineDetailScreen';
 import ActivityScreen, { ACTIVE_ACTIVITY_KEY } from '../screens/ActivityScreen';
-import DiagnosisScreen, { ACTIVE_DIAGNOSIS_V2_KEY } from '../screens/DiagnosisScreen';
+import DiagnosisScreen, { ACTIVE_DIAGNOSIS_V2_PREFIX } from '../screens/DiagnosisScreen';
+import ConnectivityCheckScreen from '../screens/ConnectivityCheckScreen';
+import DataCollectionScreen from '../screens/DataCollectionScreen';
 import ConnectivityDiagnosisScreen from '../screens/ConnectivityDiagnosisScreen';
 import NonJDMachineScreen from '../screens/NonJDMachineScreen';
 import { Organization, Machine } from '../types';
@@ -36,6 +38,23 @@ export type RootStackParamList = {
     method: 'starlink_data_sync' | 'pen_drive';
     startedAt: string;
   };
+  ConnectivityCheck: {
+    machine: Machine;
+    org: Organization;
+    currentHours: number;
+    hoursDiff: number;
+    activityId: number;
+    startedAt: string;
+  };
+  DataCollection: {
+    machine: Machine;
+    org: Organization;
+    currentHours: number;
+    hoursDiff: number;
+    activityId: number;
+    startedAt: string;
+    connectivityPhotoUri: string;
+  };
   Diagnosis: {
     machine: Machine;
     org: Organization;
@@ -43,6 +62,7 @@ export type RootStackParamList = {
     hoursDiff: number;
     activityId: number;
     startedAt: string;
+    initialStep?: 'step2b' | 'step2c';
   };
   ConnectivityDiagnosis: {
     machine: Machine;
@@ -143,36 +163,50 @@ export default function AppNavigator() {
 
     async function checkActiveDiagnosis() {
       try {
-        const raw = await AsyncStorage.getItem(ACTIVE_DIAGNOSIS_V2_KEY);
+        const allKeys = await AsyncStorage.getAllKeys();
+        const diagKey = allKeys.find((k) => k.startsWith(ACTIVE_DIAGNOSIS_V2_PREFIX));
+        if (!diagKey || cancelled) return;
+
+        const raw = await AsyncStorage.getItem(diagKey);
         if (!raw || cancelled) return;
 
         const saved = JSON.parse(raw);
         if (!saved.activityId || !saved.startedAt || !saved.machine || !saved.org) return;
 
         const machineName = saved.machinePin || saved.machine.pin || saved.machine.custom_name || '—';
+        const currentScreen: string = saved.currentScreen ?? 'connectivity_check';
 
         setTimeout(() => {
           if (cancelled || !navigationRef.isReady()) return;
           Alert.alert(
-            'Diagnóstico em andamento',
-            `Você tem um diagnóstico ativo em ${machineName} (${saved.orgName || saved.org.name}). Deseja retornar?`,
+            'Serviço em andamento',
+            `Você tem um serviço ativo em ${machineName} (${saved.orgName || saved.org.name}). Deseja retornar?`,
             [
               {
                 text: 'Descartar',
                 style: 'destructive',
-                onPress: () => AsyncStorage.removeItem(ACTIVE_DIAGNOSIS_V2_KEY).catch(() => {}),
+                onPress: () => AsyncStorage.removeItem(diagKey).catch(() => {}),
               },
               {
                 text: 'Retornar',
-                onPress: () =>
-                  navigationRef.navigate('Diagnosis', {
+                onPress: () => {
+                  const base = {
                     machine: saved.machine,
                     org: saved.org,
                     currentHours: saved.currentHours ?? 0,
                     hoursDiff: saved.hoursDiff ?? 0,
                     activityId: saved.activityId,
                     startedAt: saved.startedAt,
-                  }),
+                  };
+                  const step: string = saved.step ?? saved.currentScreen ?? 'step1';
+                  if (step === 'step2c') {
+                    navigationRef.navigate('Diagnosis', { ...base, initialStep: 'step2c' });
+                  } else if (step === 'step2b') {
+                    navigationRef.navigate('Diagnosis', { ...base, initialStep: 'step2b' });
+                  } else {
+                    navigationRef.navigate('ConnectivityCheck', base);
+                  }
+                },
               },
             ],
             { cancelable: false },
@@ -233,6 +267,16 @@ export default function AppNavigator() {
               name="Activity"
               component={ActivityScreen}
               options={{ title: 'Atividade em Andamento' }}
+            />
+            <Stack.Screen
+              name="ConnectivityCheck"
+              component={ConnectivityCheckScreen}
+              options={{ title: '🔌 Verificação de Conectividade' }}
+            />
+            <Stack.Screen
+              name="DataCollection"
+              component={DataCollectionScreen}
+              options={{ title: '📡 Coleta de Dados' }}
             />
             <Stack.Screen
               name="Diagnosis"

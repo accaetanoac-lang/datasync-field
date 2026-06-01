@@ -49,6 +49,7 @@ export interface Activity {
   diagnosis_result?: string;
   connectivity_issue?: boolean;
   total_pause_minutes?: number;
+  connectivity_photo_url?: string;
 }
 
 export interface PendingActivity {

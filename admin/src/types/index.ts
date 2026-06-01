@@ -54,6 +54,9 @@ export interface Activity {
   photo_url?: string;
   pre_signed_photo_url?: string;
   photo_taken_at?: string;
+  connectivity_photo_url?: string;
+  pre_signed_connectivity_photo_url?: string;
+  connectivity_photo_taken_at?: string;
   // Diagnosis fields
   is_diagnosis?: boolean;
   diagnosis_result?: 'resolved' | 'needs_return' | 'unidentified' | 'no_modem';

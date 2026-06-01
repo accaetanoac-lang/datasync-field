@@ -162,6 +162,42 @@ export async function uploadActivityPhoto(id: number, photoUri: string): Promise
   }
 }
 
+export async function uploadConnectivityPhoto(id: number, photoUri: string): Promise<{ connectivity_photo_url: string }> {
+  const token = await AsyncStorage.getItem('auth_token');
+  const formData = new FormData();
+  formData.append('photo', {
+    uri: photoUri,
+    name: `connectivity_${id}_${Date.now()}.jpg`,
+    type: 'image/jpeg',
+  } as unknown as Blob);
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30_000);
+  try {
+    const response = await fetch(`${BASE_URL}/activities/${id}/connectivity-photo`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token ?? ''}` },
+      body: formData,
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error((body as { error?: string }).error ?? `Upload failed: ${response.status}`);
+    }
+    return (await response.json()) as { connectivity_photo_url: string };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function finishDataCollection(id: number, data: {
+  method: string;
+  diagnosis_result?: string;
+}): Promise<Activity> {
+  const res = await api.put<Activity>(`/activities/${id}/finish`, data);
+  return res.data;
+}
+
 export async function markNoUse(id: number): Promise<Activity> {
   const res = await api.put<Activity>(`/activities/${id}/no-use`);
   return res.data;

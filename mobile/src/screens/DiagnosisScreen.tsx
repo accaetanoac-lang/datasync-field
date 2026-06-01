@@ -21,22 +21,16 @@ import { formatDaysOffline } from '../types';
 type Nav = StackNavigationProp<RootStackParamList, 'Diagnosis'>;
 type Route = RouteProp<RootStackParamList, 'Diagnosis'>;
 
-// Keep old key exported for backward compat (AppNavigator may still reference it)
+// Legacy key kept for backward compat (AppNavigator may still reference it)
 export const ACTIVE_DIAGNOSIS_KEY = 'active_diagnosis';
 export const ACTIVE_DIAGNOSIS_V2_KEY = 'active_diagnosis_v2';
+export const ACTIVE_DIAGNOSIS_V2_PREFIX = 'active_diagnosis_v2_';
 
-type Step = 'step1' | 'step2a' | 'step2b' | 'step2c';
+type Step = 'step2b' | 'step2c';
 type Step2bOption = 'resolved_now' | 'needs_return' | null;
 
 const JD_GREEN  = '#367C2B';
 const JD_YELLOW = '#FFDE00';
-
-const CONNECTED_CAUSES = [
-  'Máquina estava sem ignição ligada',
-  'Sem sinal de internet na localização (resolvido com Starlink)',
-  'Reinício do sistema resolveu o problema',
-  'Outro',
-];
 
 const NO_MODEM_PREDISPOSED = [
   { value: 'yes',     label: 'Sim — possui conector/chicote para instalação' },
@@ -72,11 +66,19 @@ function formatElapsed(seconds: number): string {
 export default function DiagnosisScreen() {
   const navigation = useNavigation<Nav>();
   const route = useRoute<Route>();
-  const { machine, org, currentHours, hoursDiff, activityId: routeActivityId, startedAt: routeStartedAt } = route.params;
+  const {
+    machine, org, currentHours, hoursDiff,
+    activityId: routeActivityId, startedAt: routeStartedAt,
+    initialStep,
+  } = route.params;
 
-  const [step, setStep]                 = useState<Step>('step1');
+  const machinePin = machine.pin ?? machine.custom_name ?? 'unknown';
+  const STORAGE_KEY = `${ACTIVE_DIAGNOSIS_V2_PREFIX}${machinePin}`;
+
+  const defaultStep: Step = initialStep === 'step2c' ? 'step2c' : 'step2b';
+
+  const [step, setStep]                 = useState<Step>(defaultStep);
   const [step2bOption, setStep2bOption] = useState<Step2bOption>(null);
-  const [connChecklist, setConnChecklist]       = useState<boolean[]>(new Array(4).fill(false));
   const [disconnChecklist, setDisconnChecklist] = useState<boolean[]>(new Array(5).fill(false));
   const [selectedMethod, setSelectedMethod]     = useState<'starlink_data_sync' | 'pen_drive' | null>(null);
   const [noModemPredisposed, setNoModemPredisposed]         = useState<string | null>(null);
@@ -94,7 +96,7 @@ export default function DiagnosisScreen() {
   const pausedAtRef        = useRef<number | null>(null);
   const activityIdRef      = useRef<number>(routeActivityId);
   const intervalRef        = useRef<ReturnType<typeof setInterval> | null>(null);
-  const stepRef            = useRef<Step>('step1');
+  const stepRef            = useRef<Step>(defaultStep);
   const step2bOptionRef    = useRef<Step2bOption>(null);
 
   const calcElapsed = useCallback((): number => {
@@ -112,20 +114,24 @@ export default function DiagnosisScreen() {
     intervalRef.current = setInterval(() => setElapsed(calcElapsed()), 1000);
   }, [calcElapsed]);
 
-  // Mount: restore saved state if same activity, then start timer
+  // Mount: remove legacy keys, restore state only if saved PIN matches this machine
   useEffect(() => {
-    // Remove stale old-format key to prevent double-alert in AppNavigator
     AsyncStorage.removeItem(ACTIVE_DIAGNOSIS_KEY).catch(() => {});
+    AsyncStorage.removeItem(ACTIVE_DIAGNOSIS_V2_KEY).catch(() => {});
 
-    AsyncStorage.getItem(ACTIVE_DIAGNOSIS_V2_KEY).then((raw) => {
+    AsyncStorage.getItem(STORAGE_KEY).then((raw) => {
       if (!raw) { startInterval(); return; }
       try {
         const saved = JSON.parse(raw);
+
+        // Only restore if this is the same activity for the same machine
         if (saved.activityId !== routeActivityId) { startInterval(); return; }
+        const savedPin = saved.machinePin ?? '';
+        if (savedPin && savedPin !== machinePin) { startInterval(); return; }
 
         totalPauseMsRef.current = saved.totalPausedMs ?? 0;
 
-        if (saved.step && saved.step !== 'step1') {
+        if (saved.step && (saved.step === 'step2b' || saved.step === 'step2c')) {
           setStep(saved.step);
           stepRef.current = saved.step;
         }
@@ -163,7 +169,7 @@ export default function DiagnosisScreen() {
     const data = {
       activityId:    activityIdRef.current,
       startedAt:     routeStartedAt,
-      machinePin:    machine.pin ?? machine.custom_name ?? '',
+      machinePin,
       orgName:       org.name,
       machine,
       org,
@@ -176,26 +182,8 @@ export default function DiagnosisScreen() {
         ? new Date(pausedAtRef.current).toISOString()
         : null,
     };
-    await AsyncStorage.setItem(ACTIVE_DIAGNOSIS_V2_KEY, JSON.stringify(data)).catch(() => {});
-  }, [machine, org, currentHours, hoursDiff, routeStartedAt]);
-
-  const goToStep2a = () => {
-    stepRef.current = 'step2a';
-    setStep('step2a');
-    persistState(false);
-  };
-
-  const goToStep2b = () => {
-    stepRef.current = 'step2b';
-    setStep('step2b');
-    persistState(false);
-  };
-
-  const goToStep2c = () => {
-    stepRef.current = 'step2c';
-    setStep('step2c');
-    persistState(false);
-  };
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(data)).catch(() => {});
+  }, [machine, org, currentHours, hoursDiff, routeStartedAt, machinePin, STORAGE_KEY]);
 
   const selectStep2bOption = (opt: Step2bOption) => {
     step2bOptionRef.current = opt;
@@ -277,7 +265,7 @@ export default function DiagnosisScreen() {
     const checklist: boolean[] | Record<string, string | null> =
       diagnosisResult === 'no_modem'
         ? { predisposed: noModemPredisposed, recommendation: noModemRecommendation }
-        : step === 'step2a' ? connChecklist : disconnChecklist;
+        : disconnChecklist;
     const totalPauseMin = Math.round(totalPauseMsRef.current / 60000);
     const net = await NetInfo.fetch();
     const isOnline = net.isConnected && net.isInternetReachable !== false;
@@ -297,7 +285,7 @@ export default function DiagnosisScreen() {
           notes: diagnosisResult === 'needs_return' ? notes.trim() : undefined,
         });
 
-        await AsyncStorage.removeItem(ACTIVE_DIAGNOSIS_V2_KEY);
+        await AsyncStorage.removeItem(STORAGE_KEY);
         setDoneResult(diagnosisResult);
         setDone(true);
 
@@ -311,7 +299,7 @@ export default function DiagnosisScreen() {
           setTimeout(() => navigation.navigate('MachineList', { org }), 1500);
         }
       } else {
-        await AsyncStorage.removeItem(ACTIVE_DIAGNOSIS_V2_KEY);
+        await AsyncStorage.removeItem(STORAGE_KEY);
         setDoneResult(diagnosisResult);
         setDone(true);
         setTimeout(() => navigation.navigate('MachineList', { org }), 1500);
@@ -342,105 +330,21 @@ export default function DiagnosisScreen() {
       {/* Machine info */}
       <View style={styles.machineCard}>
         <Text style={styles.cardTitle}>Informações da Máquina</Text>
-        <InfoRow label="Chassi / PIN"         value={machine.pin ?? machine.custom_name ?? 'N/A'} />
-        <InfoRow label="Modelo"               value={machine.modelo ?? 'N/A'} />
-        <InfoRow label="Dias offline"         value={formatDaysOffline(machine.days_offline)} valueStyle={styles.yellowText} />
-        <InfoRow label="Horímetro atual"      value={`${currentHours} h`} />
-        <InfoRow label="Diferença"            value={`${hoursDiff.toFixed(1)} h`} />
+        <InfoRow label="Chassi / PIN"    value={machine.pin ?? machine.custom_name ?? 'N/A'} />
+        <InfoRow label="Modelo"          value={machine.modelo ?? 'N/A'} />
+        <InfoRow label="Dias offline"    value={formatDaysOffline(machine.days_offline)} valueStyle={styles.yellowText} />
+        <InfoRow label="Horímetro atual" value={`${currentHours} h`} />
+        <InfoRow label="Diferença"       value={`${hoursDiff.toFixed(1)} h`} />
       </View>
 
       {/* Timer — always visible */}
       <View style={[styles.timerBar, isPaused && styles.timerBarPaused]}>
-        <Text style={styles.timerBarLabel}>Tempo:</Text>
+        <Text style={styles.timerBarLabel}>⏱ Tempo de serviço:</Text>
         <Text style={[styles.timerBarValue, isPaused && styles.timerBarValuePaused]}>
           {formatElapsed(elapsed)}
         </Text>
         {isPaused && <Text style={styles.pausedBadge}>PAUSADO</Text>}
       </View>
-
-      {/* ── STEP 1: Ignition + Connectivity Check ─────────────────────── */}
-      {step === 'step1' && (
-        <View style={styles.section}>
-          <Text style={styles.stepBadge}>Passo 1 de 2</Text>
-          <Text style={styles.sectionTitle}>Ligar a ignição e verificar conectividade</Text>
-          <Text style={styles.sectionDesc}>
-            Ligue a chave de ignição da máquina e aguarde o sistema inicializar
-          </Text>
-          <TouchableOpacity style={styles.connectedBtn} onPress={goToStep2a}>
-            <Text style={styles.connectedBtnText}>Máquina conectou!</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.notConnectedBtn} onPress={goToStep2b}>
-            <Text style={styles.notConnectedBtnText}>Máquina não conectou</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.noModemBtn} onPress={goToStep2c}>
-            <Text style={styles.noModemBtnText}>Máquina sem modem JDLink instalado</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {/* ── STEP 2A: Machine Connected ────────────────────────────────── */}
-      {step === 'step2a' && (
-        <>
-          <View style={styles.successSection}>
-            <Text style={styles.successTitle}>Máquina conectada com sucesso!</Text>
-            <Text style={styles.sectionSubLabel}>Marque o que se aplicava antes da conexão:</Text>
-            {CONNECTED_CAUSES.map((item, i) => (
-              <TouchableOpacity
-                key={i}
-                style={styles.checkItem}
-                onPress={() => {
-                  const next = [...connChecklist];
-                  next[i] = !next[i];
-                  setConnChecklist(next);
-                }}
-              >
-                <View style={[styles.checkbox, connChecklist[i] && styles.checkboxChecked]}>
-                  {connChecklist[i] && <Text style={styles.checkmark}>✓</Text>}
-                </View>
-                <Text style={[styles.checkLabel, connChecklist[i] && styles.checkLabelChecked]}>
-                  {item}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Método de coleta</Text>
-            <View style={styles.methodRow}>
-              {(['starlink_data_sync', 'pen_drive'] as const).map((m) => (
-                <TouchableOpacity
-                  key={m}
-                  style={[styles.methodBtn, selectedMethod === m && styles.methodBtnActive]}
-                  onPress={() => setSelectedMethod(m)}
-                >
-                  <Text style={[styles.methodBtnText, selectedMethod === m && styles.methodBtnTextActive]}>
-                    {m === 'starlink_data_sync' ? 'Starlink + Data Sync' : 'Pen Drive'}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-
-          <PhotoBlock
-            photoUri={photoUri}
-            onTakePhoto={takePhoto}
-            label="Foto do painel mostrando conexão ativa"
-            instruction="Fotografe o painel mostrando o símbolo de conexão ativa"
-          />
-
-          <TouchableOpacity
-            style={[styles.finishBtn, (!photoUri || !selectedMethod) && styles.finishBtnDisabled]}
-            onPress={() => handleFinish('resolved')}
-            disabled={loading || !photoUri || !selectedMethod}
-          >
-            {loading
-              ? <ActivityIndicator color="#fff" />
-              : <Text style={styles.finishBtnText}>Finalizar Coleta</Text>}
-          </TouchableOpacity>
-          {!selectedMethod && <Text style={styles.hintText}>Selecione o método de coleta</Text>}
-          {!photoUri && <Text style={styles.hintText}>Foto obrigatória para finalizar</Text>}
-        </>
-      )}
 
       {/* ── STEP 2B: Machine NOT Connected ───────────────────────────── */}
       {step === 'step2b' && (
@@ -568,6 +472,7 @@ export default function DiagnosisScreen() {
           </TouchableOpacity>
         </>
       )}
+
       {/* ── STEP 2C: No Modem Installed ──────────────────────────────── */}
       {step === 'step2c' && (
         <>
@@ -716,7 +621,6 @@ const styles = StyleSheet.create({
   container: { padding: 16, gap: 12 },
   center:    { flex: 1, justifyContent: 'center', alignItems: 'center' },
 
-  // Machine card
   machineCard: { backgroundColor: JD_GREEN, borderRadius: 12, padding: 16, gap: 4 },
   cardTitle:   { color: '#fff', fontSize: 13, fontWeight: '700', opacity: 0.8, marginBottom: 4 },
   infoRow:     { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 5, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.15)' },
@@ -724,7 +628,6 @@ const styles = StyleSheet.create({
   infoValue:   { color: '#fff', fontWeight: '700', fontSize: 13 },
   yellowText:  { color: JD_YELLOW, fontWeight: '800' },
 
-  // Timer bar
   timerBar: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     backgroundColor: '#1a1a1a', borderRadius: 10, padding: 12,
@@ -735,41 +638,19 @@ const styles = StyleSheet.create({
   timerBarValuePaused: { color: '#9ca3af' },
   pausedBadge:         { marginLeft: 'auto', backgroundColor: '#6B7280', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, color: '#fff', fontSize: 11, fontWeight: '700' },
 
-  // Generic section
   section: {
     backgroundColor: '#fff', borderRadius: 12, padding: 16, gap: 10,
     elevation: 1, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 2,
   },
-  stepBadge:      { alignSelf: 'flex-start', backgroundColor: JD_GREEN, color: '#fff', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, fontSize: 11, fontWeight: '700', overflow: 'hidden' },
-  sectionTitle:   { fontSize: 15, fontWeight: '700', color: '#1a1a1a' },
-  sectionDesc:    { fontSize: 13, color: '#6b7280', lineHeight: 20 },
-  sectionSubLabel:{ fontSize: 13, color: '#888', marginBottom: 4 },
+  sectionTitle:    { fontSize: 15, fontWeight: '700', color: '#1a1a1a' },
+  sectionSubLabel: { fontSize: 13, color: '#888', marginBottom: 4 },
 
-  // Step 1 buttons
-  connectedBtn: {
-    backgroundColor: JD_GREEN, borderRadius: 10, padding: 16, alignItems: 'center', marginTop: 4,
-  },
-  connectedBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-  notConnectedBtn: {
-    backgroundColor: '#1a1a1a', borderRadius: 10, padding: 16, alignItems: 'center',
-  },
-  notConnectedBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-
-  // Step 2A success section
-  successSection: {
-    backgroundColor: '#f0fdf4', borderRadius: 12, padding: 16, gap: 10,
-    borderWidth: 1.5, borderColor: '#bbf7d0',
-  },
-  successTitle: { fontSize: 15, fontWeight: '700', color: '#166534' },
-
-  // Step 2B warning section
   warningSection: {
     backgroundColor: '#FEF3C7', borderRadius: 12, padding: 16, gap: 10,
     borderWidth: 1.5, borderColor: '#FDE68A',
   },
   warningTitle: { fontSize: 15, fontWeight: '700', color: '#92400E' },
 
-  // Checklist
   checkItem:         { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 5 },
   checkbox:          { width: 22, height: 22, borderRadius: 5, borderWidth: 2, borderColor: '#d1d5db', alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff' },
   checkboxChecked:   { backgroundColor: JD_GREEN, borderColor: JD_GREEN },
@@ -777,7 +658,6 @@ const styles = StyleSheet.create({
   checkLabel:        { flex: 1, fontSize: 14, color: '#374151' },
   checkLabelChecked: { color: '#1a1a1a', fontWeight: '600' },
 
-  // Option cards (step 2B sub-options)
   optionCard: {
     backgroundColor: '#fff', borderRadius: 12, padding: 14, gap: 4,
     borderWidth: 1.5, borderColor: '#e5e7eb',
@@ -787,26 +667,22 @@ const styles = StyleSheet.create({
   optionDesc:       { fontSize: 13, color: '#6b7280' },
   optionBody:       { gap: 10, marginTop: 8, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#e5e7eb' },
 
-  // Method selector
   methodRow:           { flexDirection: 'row', gap: 8 },
   methodBtn:           { flex: 1, borderWidth: 1.5, borderColor: '#ddd', borderRadius: 8, padding: 12, alignItems: 'center' },
   methodBtnActive:     { borderColor: JD_GREEN, backgroundColor: '#f0fdf4' },
   methodBtnText:       { color: '#555', fontWeight: '600', fontSize: 12, textAlign: 'center' },
   methodBtnTextActive: { color: JD_GREEN },
 
-  // Pause / Resume
   pauseBtn:     { backgroundColor: '#6B7280', borderRadius: 10, padding: 14, alignItems: 'center' },
   resumeBtn:    { backgroundColor: JD_GREEN,  borderRadius: 10, padding: 16, alignItems: 'center' },
   pauseBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
 
-  // Notes
   notesInput: {
     backgroundColor: '#fff', borderRadius: 8, padding: 14,
     fontSize: 15, color: '#1a1a1a', minHeight: 100,
     borderWidth: 1, borderColor: '#ddd',
   },
 
-  // Photo
   photoSection:     { backgroundColor: '#fff', borderRadius: 12, borderWidth: 1.5, borderColor: '#e5e7eb', overflow: 'hidden' },
   photoPlaceholder: { padding: 20, alignItems: 'center', gap: 10 },
   cameraButton:     { backgroundColor: '#1a1a1a', borderRadius: 10, paddingVertical: 14, paddingHorizontal: 24, flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -818,19 +694,11 @@ const styles = StyleSheet.create({
   retakeButton:     { borderWidth: 1.5, borderColor: '#ddd', borderRadius: 8, paddingVertical: 8, paddingHorizontal: 20 },
   retakeText:       { color: '#555', fontWeight: '600', fontSize: 14 },
 
-  // Finish button
   finishBtn:         { backgroundColor: '#1a1a1a', borderRadius: 10, padding: 18, alignItems: 'center' },
   finishBtnDisabled: { backgroundColor: '#9ca3af' },
   finishBtnText:     { color: '#fff', fontWeight: '700', fontSize: 17 },
   hintText:          { textAlign: 'center', fontSize: 13, color: '#ef4444', marginTop: -4 },
 
-  // Step 1 — No Modem button
-  noModemBtn: {
-    backgroundColor: '#1D4ED8', borderRadius: 10, padding: 16, alignItems: 'center',
-  },
-  noModemBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-
-  // Step 2C — No modem section
   noModemSection: {
     backgroundColor: '#EFF6FF', borderRadius: 12, padding: 16, gap: 10,
     borderWidth: 1.5, borderColor: '#BFDBFE',
@@ -840,17 +708,15 @@ const styles = StyleSheet.create({
   noModemInfoBox:  { backgroundColor: '#DBEAFE', borderRadius: 8, padding: 12 },
   noModemInfoText: { fontSize: 13, color: '#1E40AF', lineHeight: 20 },
 
-  // Radio group
-  radioGroup:         { gap: 8 },
-  radioItem:          { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, borderRadius: 8, borderWidth: 1.5, borderColor: '#e5e7eb', backgroundColor: '#fff' },
-  radioItemSelected:  { borderColor: JD_GREEN, backgroundColor: '#f0fdf4' },
-  radioCircle:        { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: '#d1d5db', alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff' },
-  radioCircleSelected:{ borderColor: JD_GREEN },
-  radioInner:         { width: 10, height: 10, borderRadius: 5, backgroundColor: JD_GREEN },
-  radioLabel:         { flex: 1, fontSize: 14, color: '#374151', lineHeight: 20 },
-  radioLabelSelected: { color: '#1a1a1a', fontWeight: '600' },
+  radioGroup:          { gap: 8 },
+  radioItem:           { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, borderRadius: 8, borderWidth: 1.5, borderColor: '#e5e7eb', backgroundColor: '#fff' },
+  radioItemSelected:   { borderColor: JD_GREEN, backgroundColor: '#f0fdf4' },
+  radioCircle:         { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: '#d1d5db', alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff' },
+  radioCircleSelected: { borderColor: JD_GREEN },
+  radioInner:          { width: 10, height: 10, borderRadius: 5, backgroundColor: JD_GREEN },
+  radioLabel:          { flex: 1, fontSize: 14, color: '#374151', lineHeight: 20 },
+  radioLabelSelected:  { color: '#1a1a1a', fontWeight: '600' },
 
-  // Done
   doneIcon: { fontSize: 72, color: JD_GREEN },
   doneText: { fontSize: 22, fontWeight: '700', color: JD_GREEN, marginTop: 16 },
   doneSub:  { fontSize: 16, color: '#555', marginTop: 8 },

@@ -208,6 +208,59 @@ router.post('/:id/photo', (req: Request, res: Response, next: NextFunction): voi
   }
 });
 
+// ─── POST /:id/connectivity-photo ────────────────────────────────────────────
+
+router.post('/:id/connectivity-photo', (req: Request, res: Response, next: NextFunction): void => {
+  photoUpload(req, res, (err) => {
+    if (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : 'Upload error' });
+      return;
+    }
+    next();
+  });
+}, async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  const activityId = parseInt(req.params.id, 10);
+
+  if (!req.file) {
+    res.status(400).json({ error: 'No photo uploaded — send field "photo" as image file' });
+    return;
+  }
+
+  const existing = await queryOne<{ id: number }>(
+    'SELECT id FROM activities WHERE id = $1',
+    [activityId]
+  );
+  if (!existing) {
+    res.status(404).json({ error: 'Activity not found' });
+    return;
+  }
+
+  try {
+    const s3 = new AWS.S3({ region: process.env.AWS_REGION ?? 'us-east-1' });
+    const key = `activities/${activityId}/connectivity_${Date.now()}.jpg`;
+
+    await s3.putObject({
+      Bucket: BUCKET,
+      Key: key,
+      Body: req.file.buffer,
+      ContentType: 'image/jpeg',
+    }).promise();
+
+    const photoUrl = `https://${BUCKET}.s3.amazonaws.com/${key}`;
+    await queryOne(
+      `UPDATE activities SET connectivity_photo_url = $1, connectivity_photo_taken_at = NOW() WHERE id = $2`,
+      [photoUrl, activityId]
+    );
+
+    res.json({
+      connectivity_photo_url: photoUrl,
+      pre_signed_connectivity_photo_url: await presign(s3, photoUrl),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // ─── PUT /:id/pause ──────────────────────────────────────────────────────────
 
 router.put('/:id/pause', async (req: Request, res: Response): Promise<void> => {
@@ -270,11 +323,12 @@ router.put('/:id/resume', async (req: Request, res: Response): Promise<void> => 
 // ─── PUT /:id/finish ─────────────────────────────────────────────────────────
 
 router.put('/:id/finish', async (req: Request, res: Response): Promise<void> => {
-  const { notes, diagnosis_result, diagnosis_checklist, total_pause_minutes } = req.body as {
+  const { notes, diagnosis_result, diagnosis_checklist, total_pause_minutes, method } = req.body as {
     notes?: string;
     diagnosis_result?: string;
     diagnosis_checklist?: boolean[];
     total_pause_minutes?: number;
+    method?: string;
   };
   const activityId = parseInt(req.params.id, 10);
 
@@ -293,9 +347,6 @@ router.put('/:id/finish', async (req: Request, res: Response): Promise<void> => 
     return;
   }
 
-  // Duration = wall time minus accumulated pause time.
-  // Client-sent total_pause_minutes takes precedence (works offline when resume wasn't called).
-  // paused_at fallback handles crash-during-pause edge case.
   const updated = await queryOne(
     `UPDATE activities
      SET finished_at = NOW(),
@@ -310,7 +361,8 @@ router.put('/:id/finish', async (req: Request, res: Response): Promise<void> => 
          paused_at = NULL,
          notes = COALESCE($3, notes),
          diagnosis_result = COALESCE($4, diagnosis_result),
-         diagnosis_checklist = COALESCE($5::jsonb, diagnosis_checklist)
+         diagnosis_checklist = COALESCE($5::jsonb, diagnosis_checklist),
+         method = COALESCE($6, method)
      WHERE id = $1
      RETURNING *`,
     [
@@ -319,6 +371,7 @@ router.put('/:id/finish', async (req: Request, res: Response): Promise<void> => 
       notes ?? null,
       diagnosis_result ?? null,
       diagnosis_checklist ? JSON.stringify(diagnosis_checklist) : null,
+      method ?? null,
     ]
   );
 
@@ -465,11 +518,14 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 
   const s3 = new AWS.S3({ region: process.env.AWS_REGION ?? 'us-east-1' });
   const result = await Promise.all(
-    (rows as Record<string, unknown>[]).map(async (row) =>
-      row.photo_url
-        ? { ...row, pre_signed_photo_url: await presign(s3, row.photo_url as string) }
-        : row
-    )
+    (rows as Record<string, unknown>[]).map(async (row) => {
+      const enriched: Record<string, unknown> = { ...row };
+      if (row.photo_url)
+        enriched.pre_signed_photo_url = await presign(s3, row.photo_url as string);
+      if (row.connectivity_photo_url)
+        enriched.pre_signed_connectivity_photo_url = await presign(s3, row.connectivity_photo_url as string);
+      return enriched;
+    })
   );
   res.json(result);
 });
@@ -504,9 +560,12 @@ router.get('/:id/report', async (req: Request, res: Response): Promise<void> => 
   }
 
   const s3 = new AWS.S3({ region: process.env.AWS_REGION ?? 'us-east-1' });
-  const enriched = (activity as Record<string, unknown>).photo_url
-    ? { ...activity, pre_signed_photo_url: await presign(s3, (activity as Record<string, unknown>).photo_url as string) }
-    : activity;
+  const row = activity as Record<string, unknown>;
+  const enriched: Record<string, unknown> = { ...row };
+  if (row.photo_url)
+    enriched.pre_signed_photo_url = await presign(s3, row.photo_url as string);
+  if (row.connectivity_photo_url)
+    enriched.pre_signed_connectivity_photo_url = await presign(s3, row.connectivity_photo_url as string);
   res.json(enriched);
 });
 

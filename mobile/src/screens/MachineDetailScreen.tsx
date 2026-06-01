@@ -13,7 +13,7 @@ import { RootStackParamList } from '../navigation/AppNavigator';
 import { formatDaysOffline } from '../types';
 import NetInfo from '@react-native-community/netinfo';
 
-const ACTIVE_DIAGNOSIS_V2_KEY = 'active_diagnosis_v2';
+const ACTIVE_DIAGNOSIS_V2_PREFIX = 'active_diagnosis_v2_';
 
 type Nav = StackNavigationProp<RootStackParamList, 'MachineDetail'>;
 type Route = RouteProp<RootStackParamList, 'MachineDetail'>;
@@ -65,13 +65,21 @@ export default function MachineDetailScreen() {
     if (hoursDiff >= 10) {
       setLoading(true);
       try {
+        // Clear any stale diagnosis keys for this machine and legacy keys
+        const allKeys = await AsyncStorage.getAllKeys();
+        const staleKeys = allKeys.filter(
+          (k) => k === 'active_diagnosis_v1' || k === 'active_diagnosis_v2' || k.startsWith(ACTIVE_DIAGNOSIS_V2_PREFIX)
+        );
+        if (staleKeys.length > 0) await AsyncStorage.multiRemove(staleKeys);
+
         const act = await startDiagnosisActivity({
           org_id: org.id,
           machine_id: machine.id,
           current_hours: val,
         });
         const startedAt = act.started_at ?? new Date().toISOString();
-        await AsyncStorage.setItem(ACTIVE_DIAGNOSIS_V2_KEY, JSON.stringify({
+        const machineKey = ACTIVE_DIAGNOSIS_V2_PREFIX + (machine.pin ?? machine.custom_name ?? String(machine.id));
+        await AsyncStorage.setItem(machineKey, JSON.stringify({
           activityId: act.id,
           startedAt,
           machinePin: machine.pin ?? machine.custom_name ?? '',
@@ -80,12 +88,11 @@ export default function MachineDetailScreen() {
           org,
           currentHours: val,
           hoursDiff,
-          step: 'step1',
-          step2bOption: null,
+          currentScreen: 'connectivity_check',
           totalPausedMs: 0,
           pausedAt: null,
         }));
-        navigation.navigate('Diagnosis', { machine, org, currentHours: val, hoursDiff, activityId: act.id, startedAt });
+        navigation.navigate('ConnectivityCheck', { machine, org, currentHours: val, hoursDiff, activityId: act.id, startedAt });
       } catch {
         Alert.alert('Erro', 'Não foi possível iniciar o diagnóstico. Verifique sua conexão e tente novamente.');
       } finally {
