@@ -6,6 +6,7 @@ import * as Location from 'expo-location';
 import * as Updates from 'expo-updates';
 import Constants from 'expo-constants';
 import api, { login as apiLogin, sendPushToken } from '../services/api';
+import { setUnauthorizedHandler } from '../services/authEvents';
 import { registerBackgroundTask } from '../services/backgroundLocation';
 import { Technician } from '../types';
 
@@ -169,6 +170,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await AsyncStorage.multiRemove([TOKEN_KEY, TECH_KEY]);
     setState({ token: null, technician: null, isAuthenticated: false, loading: false });
   };
+
+  // Registra o handler de 401 assim que clearAuth estiver disponível.
+  // api.ts chama triggerUnauthorized() em qualquer 401 autenticado.
+  useEffect(() => {
+    setUnauthorizedHandler(() => { clearAuth().catch(() => {}); });
+  }, []);
 
   return (
     <AuthContext.Provider value={{ ...state, login, clearAuth }}>

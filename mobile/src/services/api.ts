@@ -1,6 +1,7 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Organization, Machine, Activity, Technician, NearbyOrg, MachineSearchResult } from '../types';
+import { triggerUnauthorized } from './authEvents';
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3001';
 
@@ -22,7 +23,16 @@ api.interceptors.response.use(
   (res) => res,
   async (error: AxiosError) => {
     if (error.response?.status === 401) {
-      await AsyncStorage.removeItem('auth_token');
+      const url = error.config?.url ?? '';
+      // Não disparar logout se o próprio login retornou 401 (ID errado/inativo)
+      // nem se for sendGeofence sem token na tela de login — essas chamadas não
+      // têm token por design e não devem forçar logout de uma sessão existente.
+      const isUnauthenticatedCall = !error.config?.headers?.Authorization;
+      const isLoginEndpoint = url.includes('/auth/login');
+      if (!isLoginEndpoint && !isUnauthenticatedCall) {
+        await AsyncStorage.multiRemove(['auth_token', 'auth_technician']);
+        triggerUnauthorized();
+      }
     }
     return Promise.reject(error);
   }
