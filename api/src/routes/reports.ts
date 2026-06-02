@@ -299,7 +299,8 @@ router.get('/bi', async (_req: Request, res: Response): Promise<void> => {
        hg.max_plant, hg.ytd_plant, hg.gap_plant,
        hg.max_apply, hg.ytd_apply, hg.gap_apply,
        hg.max_harvest, hg.ytd_harvest, hg.gap_harvest,
-       COUNT(m.id) FILTER (WHERE m.days_offline >= 30 OR m.last_call_date IS NULL) AS offline_machines_count
+       COUNT(m.id) FILTER (WHERE m.days_offline >= 30 OR m.last_call_date IS NULL) AS offline_machines_count,
+       COUNT(m.id) FILTER (WHERE m.last_call_date IS NOT NULL) AS connected_machines_count
      FROM organizations o
      LEFT JOIN customer_health ch ON ch.org_id = o.id
        AND ch.upload_month = (SELECT MAX(upload_month) FROM customer_health WHERE org_id = o.id)
@@ -324,6 +325,88 @@ router.get('/bi', async (_req: Request, res: Response): Promise<void> => {
   } catch (err) {
     console.error('/reports/bi error:', err);
     res.status(500).json([]);
+  }
+});
+
+router.get('/highly-engaged', async (_req: Request, res: Response): Promise<void> => {
+  try {
+    // Current R12 window: last 12 months
+    const orgs = await query<{
+      org_id: number;
+      org_name: string;
+      qualifying_days: string;
+      is_highly_engaged: boolean;
+    }>(
+      `WITH daily_counts AS (
+         SELECT vl.org_id, vl.action_date,
+           COUNT(DISTINCT vl.vca_number) AS daily_vca_count
+         FROM vca_daily_log vl
+         GROUP BY vl.org_id, vl.action_date
+       ),
+       r12_qualifying AS (
+         SELECT org_id,
+           COUNT(DISTINCT action_date) AS qualifying_days
+         FROM daily_counts
+         WHERE action_date >= CURRENT_DATE - INTERVAL '12 months'
+           AND daily_vca_count >= 4
+         GROUP BY org_id
+       )
+       SELECT
+         o.id                                         AS org_id,
+         o.name                                       AS org_name,
+         COALESCE(q.qualifying_days, 0)               AS qualifying_days,
+         COALESCE(q.qualifying_days, 0) >= 10         AS is_highly_engaged
+       FROM organizations o
+       LEFT JOIN r12_qualifying q ON q.org_id = o.id
+       ORDER BY q.qualifying_days DESC NULLS LAST, o.name`
+    );
+
+    // Previous R12 window: 13–1 months ago (for Retained calculation)
+    const prevOrgs = await query<{ org_id: number; is_highly_engaged: boolean }>(
+      `WITH daily_counts AS (
+         SELECT vl.org_id, vl.action_date,
+           COUNT(DISTINCT vl.vca_number) AS daily_vca_count
+         FROM vca_daily_log vl
+         GROUP BY vl.org_id, vl.action_date
+       ),
+       prev_qualifying AS (
+         SELECT org_id,
+           COUNT(DISTINCT action_date) AS qualifying_days
+         FROM daily_counts
+         WHERE action_date >= CURRENT_DATE - INTERVAL '13 months'
+           AND action_date <  CURRENT_DATE - INTERVAL '1 month'
+           AND daily_vca_count >= 4
+         GROUP BY org_id
+       )
+       SELECT
+         o.id                                   AS org_id,
+         COALESCE(q.qualifying_days, 0) >= 10   AS is_highly_engaged
+       FROM organizations o
+       LEFT JOIN prev_qualifying q ON q.org_id = o.id`
+    );
+
+    const prevHeSet = new Set(
+      prevOrgs.filter((r) => r.is_highly_engaged).map((r) => r.org_id)
+    );
+
+    const enriched = orgs.map((r) => ({
+      org_id:                  r.org_id,
+      org_name:                r.org_name,
+      qualifying_days:         Number(r.qualifying_days),
+      is_highly_engaged:       r.is_highly_engaged,
+      was_highly_engaged_prev: prevHeSet.has(r.org_id),
+      is_retained:             r.is_highly_engaged && prevHeSet.has(r.org_id),
+    }));
+
+    res.json({
+      total_orgs:           enriched.length,
+      total_highly_engaged: enriched.filter((r) => r.is_highly_engaged).length,
+      total_retained:       enriched.filter((r) => r.is_retained).length,
+      orgs:                 enriched,
+    });
+  } catch (err) {
+    console.error('/reports/highly-engaged error:', err);
+    res.status(500).json({ total_orgs: 0, total_highly_engaged: 0, total_retained: 0, orgs: [] });
   }
 });
 

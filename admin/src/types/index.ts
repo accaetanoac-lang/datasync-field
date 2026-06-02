@@ -120,6 +120,7 @@ export interface BiRow {
   ytd_harvest?: number;
   gap_harvest?: number;
   offline_machines_count?: number;
+  connected_machines_count?: number;
 }
 
 export interface SummaryStats {
@@ -232,6 +233,22 @@ export interface Impediment {
   org_name?: string;
   machine_pin?: string;
   machine_custom_name?: string;
+}
+
+export interface HighlyEngagedOrg {
+  org_id: number;
+  org_name: string;
+  qualifying_days: number;
+  is_highly_engaged: boolean;
+  was_highly_engaged_prev: boolean;
+  is_retained: boolean;
+}
+
+export interface HighlyEngagedReport {
+  total_orgs: number;
+  total_highly_engaged: number;
+  total_retained: number;
+  orgs: HighlyEngagedOrg[];
 }
 
 export interface UploadHistory {

@@ -8,7 +8,7 @@ import GapBars from '../components/charts/GapBars';
 import EngagementDonut from '../components/charts/EngagementDonut';
 import TechHoursChart from '../components/charts/TechHoursChart';
 import ExportButton from '../components/ExportButton';
-import { SummaryStats, BiRow, TechnicianReport, Machine, FieldVisitNoCollection, Activity, VisitManagement, Impediment } from '../types';
+import { SummaryStats, BiRow, TechnicianReport, Machine, FieldVisitNoCollection, Activity, VisitManagement, Impediment, HighlyEngagedReport } from '../types';
 
 const POLL_MS = 30_000;
 
@@ -24,8 +24,9 @@ export default function DashboardPage() {
   const [visitData, setVisitData] = useState<VisitManagement[]>([]);
   const [diagnosisActivities, setDiagnosisActivities] = useState<Activity[]>([]);
   const [impediments, setImpediments] = useState<Impediment[]>([]);
-  const [nonJdCount, setNonJdCount]   = useState(0);
-  const [ocSummary, setOcSummary]     = useState<{ has_app: number; uses_it: number; interested: number; total_surveyed: number } | null>(null);
+  const [nonJdCount, setNonJdCount]         = useState(0);
+  const [ocSummary, setOcSummary]           = useState<{ has_app: number; uses_it: number; interested: number; total_surveyed: number } | null>(null);
+  const [highlyEngaged, setHighlyEngaged]   = useState<HighlyEngagedReport | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -84,6 +85,10 @@ export default function DashboardPage() {
     api.get<{ summary: typeof ocSummary }>('/reports/oc-adoption')
       .then((r) => setOcSummary(r.data?.summary ?? null))
       .catch(() => setOcSummary(null));
+
+    api.get<HighlyEngagedReport>('/reports/highly-engaged')
+      .then((r) => setHighlyEngaged(r.data ?? null))
+      .catch(() => setHighlyEngaged(null));
   }, []);
 
   const refreshLive = useCallback(async () => {
@@ -324,6 +329,75 @@ export default function DashboardPage() {
           <GapBars biData={biData} />
           <EngagementDonut biData={biData} />
         </div>
+
+        {/* 18.6 — Highly Engaged Organizations (JD definition) */}
+        {highlyEngaged && (
+          <div className="mb-6">
+            <h3 className="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-3">
+              18.6 — Highly Engaged Organizations (R12 · ≥4 VCAs em ≥10 dias)
+            </h3>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+              <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 flex flex-col gap-1">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Highly Engaged</p>
+                <p className="text-3xl font-bold text-green-700">{highlyEngaged.total_highly_engaged}</p>
+                <p className="text-xs text-gray-400">
+                  {highlyEngaged.total_orgs > 0
+                    ? `${((highlyEngaged.total_highly_engaged / highlyEngaged.total_orgs) * 100).toFixed(1)}% das orgs`
+                    : '—'}
+                </p>
+              </div>
+              <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 flex flex-col gap-1">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Retained</p>
+                <p className="text-3xl font-bold text-jd-green">{highlyEngaged.total_retained}</p>
+                <p className="text-xs text-gray-400">
+                  {highlyEngaged.total_highly_engaged > 0
+                    ? `${((highlyEngaged.total_retained / highlyEngaged.total_highly_engaged) * 100).toFixed(1)}% dos HE`
+                    : '—'}
+                </p>
+              </div>
+              <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 flex flex-col gap-1">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Novas HE</p>
+                <p className="text-3xl font-bold text-blue-600">
+                  {highlyEngaged.total_highly_engaged - highlyEngaged.total_retained}
+                </p>
+                <p className="text-xs text-gray-400">não eram HE no período anterior</p>
+              </div>
+              <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 flex flex-col gap-1">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Total Orgs</p>
+                <p className="text-3xl font-bold text-gray-700">{highlyEngaged.total_orgs}</p>
+                <p className="text-xs text-gray-400">com dados no sistema</p>
+              </div>
+            </div>
+            {highlyEngaged.orgs.filter((o) => o.is_highly_engaged).length > 0 && (
+              <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">
+                  Orgs Highly Engaged — dias qualificados R12
+                </p>
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {highlyEngaged.orgs
+                    .filter((o) => o.is_highly_engaged)
+                    .map((o) => (
+                      <div key={o.org_id} className="flex items-center gap-3">
+                        <span className="text-xs text-gray-400 w-4">
+                          {o.is_retained ? '🔒' : '🆕'}
+                        </span>
+                        <span className="text-sm text-gray-700 flex-1 truncate">{o.org_name}</span>
+                        <div className="flex items-center gap-2">
+                          <div
+                            className="h-2 bg-green-400 rounded"
+                            style={{ width: `${Math.min(80, o.qualifying_days * 4)}px` }}
+                          />
+                          <span className="text-sm font-bold text-green-700 w-12 text-right">
+                            {o.qualifying_days}d
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* 18.7 — Modems */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
