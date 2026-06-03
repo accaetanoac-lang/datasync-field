@@ -3,6 +3,7 @@ import {
   View, Text, TextInput, StyleSheet, ActivityIndicator,
   KeyboardAvoidingView, Platform, Alert,
 } from 'react-native';
+import * as Updates from 'expo-updates';
 import { useAuth } from '../context/AuthContext';
 import { getCurrentLocation } from '../services/geolocation';
 import { sendGeofence } from '../services/api';
@@ -14,15 +15,32 @@ const JD_YELLOW = '#FFDE00';
 
 export default function LoginScreen() {
   const { login } = useAuth();
-  const [value, setValue] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [value, setValue]           = useState('');
+  const [loading, setLoading]       = useState(false);
+  const [error, setError]           = useState<string | null>(null);
+  const [updating, setUpdating]     = useState(false);
   const inputRef = useRef<TextInput>(null);
 
   useEffect(() => {
+    checkForUpdate();
     inputRef.current?.focus();
     captureLocation();
   }, []);
+
+  const checkForUpdate = async () => {
+    if (__DEV__) return;
+    try {
+      const check = await Updates.checkForUpdateAsync();
+      if (!check.isAvailable) return;
+      setUpdating(true);
+      await Updates.fetchUpdateAsync();
+      await Updates.reloadAsync();
+    } catch {
+      // Falha silenciosa — não bloqueia o login
+    } finally {
+      setUpdating(false);
+    }
+  };
 
   const captureLocation = async () => {
     const coords = await getCurrentLocation();
@@ -70,6 +88,15 @@ export default function LoginScreen() {
     }
   };
 
+  if (updating) {
+    return (
+      <View style={styles.updatingContainer}>
+        <ActivityIndicator size="large" color={JD_YELLOW} />
+        <Text style={styles.updatingText}>Atualizando app...</Text>
+      </View>
+    );
+  }
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -112,6 +139,12 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
+  updatingContainer: {
+    flex: 1, backgroundColor: JD_GREEN,
+    justifyContent: 'center', alignItems: 'center', gap: 16,
+  },
+  updatingText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+
   container: { flex: 1, backgroundColor: JD_GREEN },
   inner: {
     flex: 1,
