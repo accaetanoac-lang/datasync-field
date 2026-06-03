@@ -35,7 +35,7 @@ export interface Activity {
   machine_id?: number;
   org_id?: number;
   method: 'starlink_data_sync' | 'pen_drive' | 'diagnosis';
-  status: 'in_progress' | 'completed' | 'no_use';
+  status: 'in_progress' | 'completed' | 'no_use' | 'cancelled';
   current_hours?: number;
   hours_diff?: number;
   tech_lat?: number;
@@ -50,6 +50,7 @@ export interface Activity {
   connectivity_issue?: boolean;
   total_pause_minutes?: number;
   connectivity_photo_url?: string;
+  cancel_reason?: string;
 }
 
 export interface PendingActivity {
@@ -66,6 +67,11 @@ export interface PendingActivity {
   finished_at?: string;
   duration_minutes?: number;
   synced_offline: true;
+}
+
+export interface PendingCancellation {
+  activityId: number;
+  cancel_reason?: string;
 }
 
 export interface PendingVisit {

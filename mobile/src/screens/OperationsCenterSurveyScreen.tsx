@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
   ScrollView, Alert, ActivityIndicator, TextInput, Linking, Image,
@@ -6,7 +6,10 @@ import {
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import * as ImagePicker from 'expo-image-picker';
-import { submitOcSurvey, uploadOcPhoto } from '../services/api';
+import NetInfo from '@react-native-community/netinfo';
+import { submitOcSurvey, uploadOcPhoto, cancelActivity } from '../services/api';
+import { queueCancellation } from '../services/sync';
+import CancelActivityModal from '../components/CancelActivityModal';
 import { RootStackParamList } from '../navigation/AppNavigator';
 
 type Nav = StackNavigationProp<RootStackParamList, 'OperationsCenterSurvey'>;
@@ -46,10 +49,42 @@ export default function OperationsCenterSurveyScreen() {
   const [q1, setQ1] = useState<Q1Answer | null>(null);
   const [q2, setQ2] = useState<Q2Answer | null>(null);
   const [q3, setQ3] = useState<Q3Answer | null>(null);
-  const [ocNotes, setOcNotes]       = useState('');
-  const [ocPhotoUri, setOcPhotoUri] = useState<string | null>(null);
-  const [loading, setLoading]       = useState(false);
-  const [done, setDone]             = useState(false);
+  const [ocNotes, setOcNotes]             = useState('');
+  const [ocPhotoUri, setOcPhotoUri]       = useState<string | null>(null);
+  const [loading, setLoading]             = useState(false);
+  const [done, setDone]                   = useState(false);
+  const [showCancelModal, setShowCancelModal] = useState(false);
+
+  useEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <TouchableOpacity onPress={() => setShowCancelModal(true)} style={{ marginRight: 16 }}>
+          <Text style={{ color: '#fff', fontSize: 15 }}>Cancelar</Text>
+        </TouchableOpacity>
+      ),
+    });
+  }, [navigation]);
+
+  const handleCancel = async (reason: string) => {
+    setShowCancelModal(false);
+
+    const net = await NetInfo.fetch();
+    const isOnline = net.isConnected && net.isInternetReachable !== false;
+
+    try {
+      if (isOnline && activityId > 0) {
+        await cancelActivity(activityId, reason || undefined);
+      } else if (activityId > 0) {
+        await queueCancellation({ activityId, cancel_reason: reason || undefined });
+      }
+    } catch {
+      if (activityId > 0) {
+        await queueCancellation({ activityId, cancel_reason: reason || undefined }).catch(() => {});
+      }
+    } finally {
+      navigation.navigate('MachineList', { org });
+    }
+  };
 
   const handleDone = () => {
     setDone(true);
@@ -111,6 +146,12 @@ export default function OperationsCenterSurveyScreen() {
   }
 
   return (
+    <>
+    <CancelActivityModal
+      visible={showCancelModal}
+      onConfirm={handleCancel}
+      onDismiss={() => setShowCancelModal(false)}
+    />
     <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
 
       {/* Header */}
@@ -233,6 +274,7 @@ export default function OperationsCenterSurveyScreen() {
       </TouchableOpacity>
 
     </ScrollView>
+    </>
   );
 }
 

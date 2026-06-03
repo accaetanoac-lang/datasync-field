@@ -1,12 +1,13 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { startActivity, finishActivity, sendGeofence, searchOrgs, getOrgMachines } from './api';
-import { PendingActivity, PendingVisit, OrgCache, MachinesCache } from '../types';
+import { startActivity, finishActivity, cancelActivity, sendGeofence, searchOrgs, getOrgMachines } from './api';
+import { PendingActivity, PendingCancellation, PendingVisit, OrgCache, MachinesCache } from '../types';
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 export const STORAGE_KEYS = {
   AUTH_TOKEN: 'auth_token',
   PENDING_ACTIVITIES: 'pending_activities',
+  PENDING_CANCELLATIONS: 'pending_cancellations',
   PENDING_VISITS: 'pending_visits',
   MACHINES_CACHE: 'machines_cache',
   ORGS_CACHE: 'orgs_cache',
@@ -65,6 +66,33 @@ export async function syncPendingVisits(): Promise<void> {
   await AsyncStorage.setItem(STORAGE_KEYS.PENDING_VISITS, JSON.stringify(remaining));
 }
 
+export async function syncPendingCancellations(): Promise<void> {
+  const raw = await AsyncStorage.getItem(STORAGE_KEYS.PENDING_CANCELLATIONS);
+  if (!raw) return;
+
+  const pending: PendingCancellation[] = JSON.parse(raw);
+  if (pending.length === 0) return;
+
+  const remaining: PendingCancellation[] = [];
+
+  for (const p of pending) {
+    try {
+      await cancelActivity(p.activityId, p.cancel_reason);
+    } catch {
+      remaining.push(p);
+    }
+  }
+
+  await AsyncStorage.setItem(STORAGE_KEYS.PENDING_CANCELLATIONS, JSON.stringify(remaining));
+}
+
+export async function queueCancellation(cancellation: PendingCancellation): Promise<void> {
+  const raw = await AsyncStorage.getItem(STORAGE_KEYS.PENDING_CANCELLATIONS);
+  const pending: PendingCancellation[] = raw ? JSON.parse(raw) : [];
+  pending.push(cancellation);
+  await AsyncStorage.setItem(STORAGE_KEYS.PENDING_CANCELLATIONS, JSON.stringify(pending));
+}
+
 export async function queueActivity(activity: PendingActivity): Promise<void> {
   const raw = await AsyncStorage.getItem(STORAGE_KEYS.PENDING_ACTIVITIES);
   const pending: PendingActivity[] = raw ? JSON.parse(raw) : [];
@@ -119,6 +147,7 @@ export async function refreshCaches(): Promise<void> {
 }
 
 export async function runFullSync(): Promise<void> {
+  await syncPendingCancellations();
   await syncPendingActivities();
   await syncPendingVisits();
   await refreshCaches();

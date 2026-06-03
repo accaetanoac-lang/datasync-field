@@ -401,6 +401,35 @@ router.put('/:id/no-use', async (req: Request, res: Response): Promise<void> => 
   res.json(updated);
 });
 
+// ─── PUT /:id/cancel ─────────────────────────────────────────────────────────
+
+router.put('/:id/cancel', async (req: Request, res: Response): Promise<void> => {
+  const activityId = parseInt(req.params.id, 10);
+  if (isNaN(activityId)) { res.status(400).json({ error: 'Invalid id' }); return; }
+
+  const { cancel_reason } = req.body as { cancel_reason?: string };
+
+  const existing = await queryOne<{ id: number }>(
+    'SELECT id FROM activities WHERE id = $1',
+    [activityId]
+  );
+
+  if (!existing) {
+    res.status(404).json({ error: 'Activity not found' });
+    return;
+  }
+
+  await query(
+    `UPDATE activities
+     SET status = 'cancelled', cancelled_at = NOW(), paused_at = NULL,
+         cancel_reason = $2
+     WHERE id = $1`,
+    [activityId, cancel_reason ?? null]
+  );
+
+  res.json({ ok: true });
+});
+
 // ─── PUT /:id/oc-survey ──────────────────────────────────────────────────────
 
 router.put('/:id/oc-survey', async (req: Request, res: Response): Promise<void> => {

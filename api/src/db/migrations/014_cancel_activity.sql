@@ -1,0 +1,2 @@
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMP;
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS cancel_reason TEXT;

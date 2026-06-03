@@ -8,8 +8,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import * as ImagePicker from 'expo-image-picker';
-import { finishActivity, uploadActivityPhoto } from '../services/api';
-import { queueActivity } from '../services/sync';
+import { finishActivity, uploadActivityPhoto, cancelActivity } from '../services/api';
+import { queueActivity, queueCancellation } from '../services/sync';
+import CancelActivityModal from '../components/CancelActivityModal';
 import NetInfo from '@react-native-community/netinfo';
 import { RootStackParamList } from '../navigation/AppNavigator';
 
@@ -42,10 +43,21 @@ export default function ActivityScreen() {
   const startTimestamp = useRef<number>(Date.parse(startedAt));
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const [elapsed, setElapsed]           = useState(0);
-  const [notes, setNotes]               = useState('');
-  const [loading, setLoading]           = useState(false);
-  const [photoUri, setPhotoUri]         = useState<string | null>(null);
+  const [elapsed, setElapsed]             = useState(0);
+  const [notes, setNotes]                 = useState('');
+  const [loading, setLoading]             = useState(false);
+  const [photoUri, setPhotoUri]           = useState<string | null>(null);
+  const [showCancelModal, setShowCancelModal] = useState(false);
+
+  useEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <TouchableOpacity onPress={() => setShowCancelModal(true)} style={{ marginRight: 16 }}>
+          <Text style={{ color: '#fff', fontSize: 15 }}>Cancelar</Text>
+        </TouchableOpacity>
+      ),
+    });
+  }, [navigation]);
 
   function calcElapsed(): number {
     return Math.max(0, Math.floor((Date.now() - startTimestamp.current) / 1000));
@@ -72,6 +84,29 @@ export default function ActivityScreen() {
       appStateSub.remove();
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleCancel = async (reason: string) => {
+    setShowCancelModal(false);
+    if (intervalRef.current) clearInterval(intervalRef.current);
+
+    const net = await NetInfo.fetch();
+    const isOnline = net.isConnected && net.isInternetReachable !== false;
+
+    try {
+      if (isOnline && activityId > 0) {
+        await cancelActivity(activityId, reason || undefined);
+      } else if (activityId > 0) {
+        await queueCancellation({ activityId, cancel_reason: reason || undefined });
+      }
+    } catch {
+      if (activityId > 0) {
+        await queueCancellation({ activityId, cancel_reason: reason || undefined }).catch(() => {});
+      }
+    } finally {
+      await AsyncStorage.removeItem(ACTIVE_ACTIVITY_KEY).catch(() => {});
+      navigation.navigate('MachineList', { org });
+    }
+  };
 
   const takePhoto = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
@@ -166,6 +201,12 @@ export default function ActivityScreen() {
   };
 
   return (
+    <>
+    <CancelActivityModal
+      visible={showCancelModal}
+      onConfirm={handleCancel}
+      onDismiss={() => setShowCancelModal(false)}
+    />
     <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
       {/* Machine info header */}
       <View style={styles.header}>
@@ -235,6 +276,7 @@ export default function ActivityScreen() {
         </Text>
       )}
     </ScrollView>
+    </>
   );
 }
 

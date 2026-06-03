@@ -8,7 +8,9 @@ import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import * as ImagePicker from 'expo-image-picker';
 import NetInfo from '@react-native-community/netinfo';
-import { finishDataCollection, uploadActivityPhoto, uploadConnectivityPhoto } from '../services/api';
+import { finishDataCollection, uploadActivityPhoto, uploadConnectivityPhoto, cancelActivity } from '../services/api';
+import { queueCancellation } from '../services/sync';
+import CancelActivityModal from '../components/CancelActivityModal';
 import { RootStackParamList } from '../navigation/AppNavigator';
 
 type Nav = StackNavigationProp<RootStackParamList, 'DataCollection'>;
@@ -29,8 +31,9 @@ export default function DataCollectionScreen() {
 
   const [selectedMethod, setSelectedMethod] = useState<'starlink_data_sync' | 'pen_drive' | null>(null);
   const [collectionPhotoUri, setCollectionPhotoUri] = useState<string | null>(null);
-  const [loading, setLoading]   = useState(false);
-  const [elapsed, setElapsed]   = useState(0);
+  const [loading, setLoading]             = useState(false);
+  const [elapsed, setElapsed]             = useState(0);
+  const [showCancelModal, setShowCancelModal] = useState(false);
 
   const startTsRef  = useRef(Date.parse(startedAt));
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -54,6 +57,39 @@ export default function DataCollectionScreen() {
   }, [calcElapsed]);
 
   const machineKey = `active_diagnosis_v2_${machine.pin ?? machine.custom_name ?? machine.id}`;
+
+  useEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <TouchableOpacity onPress={() => setShowCancelModal(true)} style={{ marginRight: 16 }}>
+          <Text style={{ color: '#fff', fontSize: 15 }}>Cancelar</Text>
+        </TouchableOpacity>
+      ),
+    });
+  }, [navigation]);
+
+  const handleCancel = async (reason: string) => {
+    setShowCancelModal(false);
+    if (intervalRef.current) clearInterval(intervalRef.current);
+
+    const net = await NetInfo.fetch();
+    const isOnline = net.isConnected && net.isInternetReachable !== false;
+
+    try {
+      if (isOnline && activityId > 0) {
+        await cancelActivity(activityId, reason || undefined);
+      } else if (activityId > 0) {
+        await queueCancellation({ activityId, cancel_reason: reason || undefined });
+      }
+    } catch {
+      if (activityId > 0) {
+        await queueCancellation({ activityId, cancel_reason: reason || undefined }).catch(() => {});
+      }
+    } finally {
+      await AsyncStorage.removeItem(machineKey).catch(() => {});
+      navigation.navigate('MachineList', { org });
+    }
+  };
 
   const takePhoto = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
@@ -137,6 +173,12 @@ export default function DataCollectionScreen() {
   };
 
   return (
+    <>
+    <CancelActivityModal
+      visible={showCancelModal}
+      onConfirm={handleCancel}
+      onDismiss={() => setShowCancelModal(false)}
+    />
     <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
 
       {/* Status */}
@@ -207,6 +249,7 @@ export default function DataCollectionScreen() {
       {!collectionPhotoUri && <Text style={styles.hintText}>Foto obrigatória para finalizar</Text>}
 
     </ScrollView>
+    </>
   );
 }
 

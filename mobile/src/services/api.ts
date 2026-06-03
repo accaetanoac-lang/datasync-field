@@ -208,6 +208,10 @@ export async function finishDataCollection(id: number, data: {
   return res.data;
 }
 
+export async function cancelActivity(id: number, cancelReason?: string): Promise<void> {
+  await api.put(`/activities/${id}/cancel`, { cancel_reason: cancelReason ?? null });
+}
+
 export async function markNoUse(id: number): Promise<Activity> {
   const res = await api.put<Activity>(`/activities/${id}/no-use`);
   return res.data;

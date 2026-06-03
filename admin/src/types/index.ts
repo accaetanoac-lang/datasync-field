@@ -71,6 +71,7 @@ export interface Activity {
   connectivity_issue?: boolean;
   total_pause_minutes?: number;
   paused_at?: string;
+  cancel_reason?: string;
 }
 
 export interface BiRow {

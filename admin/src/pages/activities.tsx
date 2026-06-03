@@ -16,6 +16,14 @@ const STATUS_COLORS: Record<string, string> = {
   completed:   'bg-green-100 text-green-700',
   in_progress: 'bg-blue-100 text-blue-700',
   no_use:      'bg-gray-100 text-gray-600',
+  cancelled:   'bg-gray-100 text-gray-400',
+};
+
+const STATUS_LABEL: Record<string, string> = {
+  completed:   'Concluída',
+  in_progress: 'Em andamento',
+  no_use:      'Sem uso',
+  cancelled:   'Cancelado',
 };
 
 const DIAGNOSIS_RESULT_LABEL: Record<string, { label: string; color: string }> = {
@@ -210,6 +218,7 @@ export default function ActivitiesPage() {
           <option value="completed">Concluída</option>
           <option value="in_progress">Em andamento</option>
           <option value="no_use">Sem uso</option>
+          <option value="cancelled">Cancelado</option>
         </select>
         <select
           value={filters.method}
@@ -311,7 +320,9 @@ export default function ActivitiesPage() {
                     <tr
                       key={`act-${a.id}`}
                       className={`transition-colors ${
-                        a.status === 'in_progress' ? 'bg-blue-50/50 hover:bg-blue-50' : 'hover:bg-gray-50'
+                        a.status === 'in_progress' ? 'bg-blue-50/50 hover:bg-blue-50'
+                        : a.status === 'cancelled'  ? 'bg-gray-50/60 hover:bg-gray-100 opacity-75'
+                        : 'hover:bg-gray-50'
                       }`}
                     >
                       <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
@@ -347,11 +358,17 @@ export default function ActivitiesPage() {
                           {a.status === 'in_progress' && (
                             <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse mr-1" />
                           )}
-                          {a.status}
+                          {STATUS_LABEL[a.status] ?? a.status}
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        {a.is_diagnosis && a.diagnosis_result ? (
+                        {a.status === 'cancelled' ? (
+                          a.cancel_reason ? (
+                            <span className="text-gray-500 text-xs italic">{a.cancel_reason}</span>
+                          ) : (
+                            <span className="text-gray-300 text-xs">—</span>
+                          )
+                        ) : a.is_diagnosis && a.diagnosis_result ? (
                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${DIAGNOSIS_RESULT_LABEL[a.diagnosis_result]?.color ?? 'bg-gray-100 text-gray-500'}`}>
                             {DIAGNOSIS_RESULT_LABEL[a.diagnosis_result]?.label ?? a.diagnosis_result}
                           </span>

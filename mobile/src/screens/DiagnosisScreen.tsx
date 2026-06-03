@@ -15,7 +15,10 @@ import {
   finishDiagnosisActivity,
   uploadActivityPhoto,
   uploadConnectivityPhoto,
+  cancelActivity,
 } from '../services/api';
+import { queueCancellation } from '../services/sync';
+import CancelActivityModal from '../components/CancelActivityModal';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { formatDaysOffline } from '../types';
 
@@ -93,9 +96,10 @@ export default function DiagnosisScreen() {
   const [noModemPredisposed, setNoModemPredisposed] = useState<string | null>(null);
   const [noModemRecommendation, setNoModemRecommendation] = useState<string | null>(null);
   const [notes, setNotes]     = useState('');
-  const [loading, setLoading] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
-  const [elapsed, setElapsed]   = useState(0);
+  const [loading, setLoading]             = useState(false);
+  const [isPaused, setIsPaused]           = useState(false);
+  const [elapsed, setElapsed]             = useState(0);
+  const [showCancelModal, setShowCancelModal] = useState(false);
 
   const startTimestampRef = useRef<number>(Date.parse(routeStartedAt));
   const totalPauseMsRef   = useRef<number>(0);
@@ -191,6 +195,40 @@ export default function DiagnosisScreen() {
     };
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(data)).catch(() => {});
   }, [machine, org, currentHours, hoursDiff, routeStartedAt, machinePin, STORAGE_KEY]);
+
+  useEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <TouchableOpacity onPress={() => setShowCancelModal(true)} style={{ marginRight: 16 }}>
+          <Text style={{ color: '#fff', fontSize: 15 }}>Cancelar</Text>
+        </TouchableOpacity>
+      ),
+    });
+  }, [navigation]);
+
+  const handleCancel = async (reason: string) => {
+    setShowCancelModal(false);
+    if (intervalRef.current) clearInterval(intervalRef.current);
+
+    const net = await NetInfo.fetch();
+    const isOnline = net.isConnected && net.isInternetReachable !== false;
+    const aid = activityIdRef.current;
+
+    try {
+      if (isOnline && aid > 0) {
+        await cancelActivity(aid, reason || undefined);
+      } else if (aid > 0) {
+        await queueCancellation({ activityId: aid, cancel_reason: reason || undefined });
+      }
+    } catch {
+      if (aid > 0) {
+        await queueCancellation({ activityId: aid, cancel_reason: reason || undefined }).catch(() => {});
+      }
+    } finally {
+      await AsyncStorage.removeItem(STORAGE_KEY).catch(() => {});
+      navigation.navigate('MachineList', { org });
+    }
+  };
 
   const handlePause = async () => {
     if (intervalRef.current) clearInterval(intervalRef.current);
@@ -363,6 +401,12 @@ export default function DiagnosisScreen() {
   };
 
   return (
+    <>
+    <CancelActivityModal
+      visible={showCancelModal}
+      onConfirm={handleCancel}
+      onDismiss={() => setShowCancelModal(false)}
+    />
     <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
 
       {/* Machine info */}
@@ -679,6 +723,7 @@ export default function DiagnosisScreen() {
         </>
       )}
     </ScrollView>
+    </>
   );
 }
 
