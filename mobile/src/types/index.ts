@@ -94,8 +94,30 @@ export interface NearbyOrg {
   pending_machines: NearbyPendingMachine[];
 }
 
+export type MachineSearchSource = 'jd_linked' | 'jd_unlinked' | 'non_jd';
+
 export interface MachineSearchResult extends Machine {
   org_name: string;
+  brand?: string;
+  source?: MachineSearchSource;
+}
+
+export interface MachineSearchResponse {
+  found: boolean;
+  source?: MachineSearchSource;
+  machine?: MachineSearchResult;
+}
+
+export interface PendingJdMachine {
+  tempId: string;
+  pin: string;
+  organization_name?: string;
+  model?: string;
+  machine_name?: string;
+  machine_type?: string;
+  year?: number;
+  engine_hours?: number;
+  notes?: string;
 }
 
 export interface OrgCache {

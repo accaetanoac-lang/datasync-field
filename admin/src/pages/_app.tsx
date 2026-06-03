@@ -14,6 +14,7 @@ const NAV = [
   { href: '/technician-report', label: 'Relatório Técnicos' },
   { href: '/organizations', label: 'Organizações' },
   { href: '/visit-management', label: 'Gestão de Visitas' },
+  { href: '/machines', label: 'Máquinas Cadastradas' },
   { href: '/operations-center', label: 'Operations Center' },
   { href: '/non-jd-machines', label: 'Máq. Não JD' },
   { href: '/impediments', label: 'Impedimentos' },

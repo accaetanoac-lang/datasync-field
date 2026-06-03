@@ -1,6 +1,6 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Organization, Machine, Activity, Technician, NearbyOrg, MachineSearchResult } from '../types';
+import { Organization, Machine, Activity, Technician, NearbyOrg, MachineSearchResult, MachineSearchResponse } from '../types';
 import { triggerUnauthorized } from './authEvents';
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3001';
@@ -229,9 +229,23 @@ export async function createNoUseActivity(data: {
   return res.data;
 }
 
-// Machine search by PIN / chassis / org name
-export async function searchMachines(pin: string): Promise<MachineSearchResult[]> {
-  const res = await api.get<MachineSearchResult[]>('/machines/search', { params: { pin } });
+// Machine search by PIN / chassis — searches jd_linked, jd_unlinked, non_jd in order
+export async function searchMachines(pin: string): Promise<MachineSearchResponse> {
+  const res = await api.get<MachineSearchResponse>('/machines/search', { params: { pin } });
+  return res.data;
+}
+
+export async function registerJdUnlinkedMachine(data: {
+  pin: string;
+  organization_name?: string;
+  model?: string;
+  machine_name?: string;
+  machine_type?: string;
+  year?: number;
+  engine_hours?: number;
+  notes?: string;
+}): Promise<{ id: number; machine_id: number; pin: string }> {
+  const res = await api.post<{ id: number; machine_id: number; pin: string }>('/machines/jd-unlinked', data);
   return res.data;
 }
 

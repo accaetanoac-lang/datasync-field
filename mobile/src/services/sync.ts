@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { startActivity, finishActivity, cancelActivity, sendGeofence, searchOrgs, getOrgMachines } from './api';
-import { PendingActivity, PendingCancellation, PendingVisit, OrgCache, MachinesCache } from '../types';
+import { startActivity, finishActivity, cancelActivity, registerJdUnlinkedMachine, sendGeofence, searchOrgs, getOrgMachines } from './api';
+import { PendingActivity, PendingCancellation, PendingJdMachine, PendingVisit, OrgCache, MachinesCache } from '../types';
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
@@ -8,6 +8,7 @@ export const STORAGE_KEYS = {
   AUTH_TOKEN: 'auth_token',
   PENDING_ACTIVITIES: 'pending_activities',
   PENDING_CANCELLATIONS: 'pending_cancellations',
+  PENDING_JD_MACHINES: 'pending_jd_machines',
   PENDING_VISITS: 'pending_visits',
   MACHINES_CACHE: 'machines_cache',
   ORGS_CACHE: 'orgs_cache',
@@ -93,6 +94,44 @@ export async function queueCancellation(cancellation: PendingCancellation): Prom
   await AsyncStorage.setItem(STORAGE_KEYS.PENDING_CANCELLATIONS, JSON.stringify(pending));
 }
 
+export async function syncPendingJdMachines(): Promise<void> {
+  const raw = await AsyncStorage.getItem(STORAGE_KEYS.PENDING_JD_MACHINES);
+  if (!raw) return;
+
+  const pending: PendingJdMachine[] = JSON.parse(raw);
+  if (pending.length === 0) return;
+
+  const remaining: PendingJdMachine[] = [];
+
+  for (const p of pending) {
+    try {
+      await registerJdUnlinkedMachine({
+        pin: p.pin,
+        organization_name: p.organization_name,
+        model: p.model,
+        machine_name: p.machine_name,
+        machine_type: p.machine_type,
+        year: p.year,
+        engine_hours: p.engine_hours,
+        notes: p.notes,
+      });
+    } catch (err: unknown) {
+      // 409 = already registered by a previous sync attempt; treat as success
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      if (status !== 409) remaining.push(p);
+    }
+  }
+
+  await AsyncStorage.setItem(STORAGE_KEYS.PENDING_JD_MACHINES, JSON.stringify(remaining));
+}
+
+export async function queueJdMachine(machine: PendingJdMachine): Promise<void> {
+  const raw = await AsyncStorage.getItem(STORAGE_KEYS.PENDING_JD_MACHINES);
+  const pending: PendingJdMachine[] = raw ? JSON.parse(raw) : [];
+  pending.push(machine);
+  await AsyncStorage.setItem(STORAGE_KEYS.PENDING_JD_MACHINES, JSON.stringify(pending));
+}
+
 export async function queueActivity(activity: PendingActivity): Promise<void> {
   const raw = await AsyncStorage.getItem(STORAGE_KEYS.PENDING_ACTIVITIES);
   const pending: PendingActivity[] = raw ? JSON.parse(raw) : [];
@@ -147,6 +186,7 @@ export async function refreshCaches(): Promise<void> {
 }
 
 export async function runFullSync(): Promise<void> {
+  await syncPendingJdMachines();
   await syncPendingCancellations();
   await syncPendingActivities();
   await syncPendingVisits();

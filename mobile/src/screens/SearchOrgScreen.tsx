@@ -7,10 +7,11 @@ import {
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { searchOrgs, sendGeofence, searchMachines } from '../services/api';
+import { MachineSearchResponse } from '../types';
 import { getCachedOrgs, setCachedOrgs } from '../services/sync';
 import { getCurrentLocation } from '../services/geolocation';
 import { useAuth } from '../context/AuthContext';
-import { Organization, NearbyOrg, MachineSearchResult } from '../types';
+import { Organization, NearbyOrg } from '../types';
 import { RootStackParamList } from '../navigation/AppNavigator';
 
 type Nav = StackNavigationProp<RootStackParamList, 'SearchOrg'>;
@@ -32,9 +33,9 @@ export default function SearchOrgScreen() {
   const [showList, setShowList] = useState(false);
 
   // PIN search state
-  const [pinQuery, setPinQuery] = useState('');
-  const [pinResults, setPinResults] = useState<MachineSearchResult[]>([]);
-  const [pinLoading, setPinLoading] = useState(false);
+  const [pinQuery, setPinQuery]       = useState('');
+  const [pinResponse, setPinResponse] = useState<MachineSearchResponse | null>(null);
+  const [pinLoading, setPinLoading]   = useState(false);
   const [pinSearched, setPinSearched] = useState(false);
   const pinDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -107,7 +108,7 @@ export default function SearchOrgScreen() {
     } else {
       if (pinDebounceRef.current) clearTimeout(pinDebounceRef.current);
       setPinQuery('');
-      setPinResults([]);
+      setPinResponse(null);
       setPinSearched(false);
     }
   };
@@ -124,7 +125,7 @@ export default function SearchOrgScreen() {
     if (pinDebounceRef.current) clearTimeout(pinDebounceRef.current);
 
     if (text.trim().length < 4) {
-      setPinResults([]);
+      setPinResponse(null);
       setPinSearched(false);
       return;
     }
@@ -132,11 +133,11 @@ export default function SearchOrgScreen() {
     pinDebounceRef.current = setTimeout(async () => {
       setPinLoading(true);
       try {
-        const results = await searchMachines(text.trim());
-        setPinResults(results);
+        const response = await searchMachines(text.trim());
+        setPinResponse(response);
         setPinSearched(true);
       } catch {
-        setPinResults([]);
+        setPinResponse({ found: false });
         setPinSearched(true);
       } finally {
         setPinLoading(false);
@@ -144,13 +145,28 @@ export default function SearchOrgScreen() {
     }, 400);
   };
 
-  const handlePinSelect = (item: MachineSearchResult) => {
-    const org: Organization = {
-      id: item.org_id,
-      org_id_jd: '',
-      name: item.org_name,
-    };
-    navigation.navigate('MachineDetail', { machine: item, org });
+  const handlePinSelect = (response: MachineSearchResponse) => {
+    if (!response.found || !response.machine) return;
+    const { source, machine } = response;
+
+    if (source === 'non_jd') {
+      navigation.navigate('NonJDMachine', {
+        prefillNonJd: {
+          id: machine.id,
+          serial_number: machine.pin,
+          custom_name: machine.custom_name ?? machine.pin ?? '',
+          brand: machine.brand,
+          model: machine.modelo,
+        },
+      });
+    } else {
+      const org: Organization = {
+        id: machine.org_id ?? 0,
+        org_id_jd: '',
+        name: machine.org_name ?? 'Sem organização',
+      };
+      navigation.navigate('MachineDetail', { machine, org });
+    }
   };
 
   // Geofence modal handlers
@@ -169,36 +185,6 @@ export default function SearchOrgScreen() {
   const handleIgnoreAll = () => {
     nearbyOrgs.forEach((o) => dismissedOrgIds.current.add(o.org_id));
     setShowGeofenceModal(false);
-  };
-
-  const renderMachineCard = ({ item }: { item: MachineSearchResult }) => {
-    const displayId = item.pin ?? item.custom_name ?? 'Sem identificação';
-    const lastConn = item.last_call_date
-      ? new Date(item.last_call_date).toLocaleDateString('pt-BR')
-      : 'Sem data';
-    const hours = item.machine_hours != null ? `${item.machine_hours} h` : 'N/A';
-    const isRed = item.days_offline != null && item.days_offline > 60;
-
-    return (
-      <TouchableOpacity
-        style={styles.machineCard}
-        onPress={() => handlePinSelect(item)}
-        activeOpacity={0.7}
-      >
-        <View style={styles.machineCardTop}>
-          <Text style={styles.machinePin} numberOfLines={1}>{displayId}</Text>
-          {item.days_offline != null && (
-            <View style={[styles.offlineBadge, isRed ? styles.badgeRed : styles.badgeYellow]}>
-              <Text style={styles.offlineBadgeText}>{item.days_offline}d</Text>
-            </View>
-          )}
-        </View>
-        <Text style={styles.machineOrg} numberOfLines={1}>{item.org_name}</Text>
-        <Text style={styles.machineMeta}>
-          Última conexão: {lastConn}{'  ·  '}{hours}
-        </Text>
-      </TouchableOpacity>
-    );
   };
 
   return (
@@ -299,23 +285,58 @@ export default function SearchOrgScreen() {
             <ActivityIndicator color={JD_GREEN} style={{ marginVertical: 8 }} />
           )}
 
-          {pinSearched && !pinLoading && pinResults.length > 0 && (
-            <FlatList
-              style={styles.pinList}
-              data={pinResults}
-              keyExtractor={(item) => String(item.id)}
-              keyboardShouldPersistTaps="handled"
-              renderItem={renderMachineCard}
-              contentContainerStyle={{ paddingBottom: 4 }}
-            />
+          {pinSearched && !pinLoading && pinResponse?.found && pinResponse.machine && (
+            <TouchableOpacity
+              style={styles.machineCard}
+              onPress={() => handlePinSelect(pinResponse)}
+              activeOpacity={0.7}
+            >
+              <View style={styles.machineCardTop}>
+                <Text style={styles.machinePin} numberOfLines={1}>
+                  {pinResponse.machine.pin ?? pinResponse.machine.custom_name ?? 'Sem identificação'}
+                </Text>
+                {pinResponse.source === 'jd_unlinked' && (
+                  <View style={styles.sourceBadgeJD}>
+                    <Text style={styles.sourceBadgeText}>JD s/ org</Text>
+                  </View>
+                )}
+                {pinResponse.source === 'non_jd' && (
+                  <View style={styles.sourceBadgeNonJD}>
+                    <Text style={styles.sourceBadgeText}>Não-JD</Text>
+                  </View>
+                )}
+                {pinResponse.machine.days_offline != null && (
+                  <View style={[styles.offlineBadge,
+                    pinResponse.machine.days_offline > 60 ? styles.badgeRed : styles.badgeYellow]}>
+                    <Text style={styles.offlineBadgeText}>{pinResponse.machine.days_offline}d</Text>
+                  </View>
+                )}
+              </View>
+              <Text style={styles.machineOrg} numberOfLines={1}>
+                {pinResponse.machine.org_name || 'Sem organização'}
+              </Text>
+              {pinResponse.machine.last_call_date && (
+                <Text style={styles.machineMeta}>
+                  Última conexão: {new Date(pinResponse.machine.last_call_date).toLocaleDateString('pt-BR')}
+                  {pinResponse.machine.machine_hours != null
+                    ? `  ·  ${pinResponse.machine.machine_hours} h` : ''}
+                </Text>
+              )}
+            </TouchableOpacity>
           )}
 
-          {pinSearched && !pinLoading && pinResults.length === 0 && (
+          {pinSearched && !pinLoading && pinResponse && !pinResponse.found && (
             <View style={styles.pinEmpty}>
               <Text style={styles.pinEmptyTitle}>Máquina não encontrada</Text>
               <Text style={styles.pinEmptyText}>
                 Nenhum resultado para "{pinQuery}"
               </Text>
+              <TouchableOpacity
+                style={styles.jdFromPinButton}
+                onPress={() => navigation.navigate('JDMachineForm', { prefillPin: pinQuery })}
+              >
+                <Text style={styles.jdFromPinText}>+ Cadastrar como máquina John Deere</Text>
+              </TouchableOpacity>
               <TouchableOpacity
                 style={styles.nonJDFromPinButton}
                 onPress={() => navigation.navigate('NonJDMachine', { prefillPin: pinQuery })}
@@ -514,6 +535,15 @@ const styles = StyleSheet.create({
   machineOrg: { fontSize: 13, color: JD_GREEN, fontWeight: '600', marginBottom: 4 },
   machineMeta: { fontSize: 12, color: '#888' },
 
+  // Source badges on found machine card
+  sourceBadgeJD: {
+    backgroundColor: '#fef9c3', borderRadius: 8, paddingHorizontal: 7, paddingVertical: 2, marginRight: 4,
+  },
+  sourceBadgeNonJD: {
+    backgroundColor: '#f3f4f6', borderRadius: 8, paddingHorizontal: 7, paddingVertical: 2, marginRight: 4,
+  },
+  sourceBadgeText: { fontSize: 11, fontWeight: '700', color: '#374151' },
+
   // PIN empty state
   pinEmpty: {
     marginTop: 24,
@@ -522,6 +552,14 @@ const styles = StyleSheet.create({
   },
   pinEmptyTitle: { fontSize: 16, fontWeight: '700', color: '#1a1a1a', marginBottom: 6 },
   pinEmptyText: { fontSize: 14, color: '#888', textAlign: 'center', marginBottom: 20 },
+  jdFromPinButton: {
+    backgroundColor: JD_GREEN,
+    borderRadius: 8,
+    paddingVertical: 13,
+    paddingHorizontal: 24,
+    marginBottom: 10,
+  },
+  jdFromPinText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   nonJDFromPinButton: {
     backgroundColor: '#1a1a1a',
     borderRadius: 8,

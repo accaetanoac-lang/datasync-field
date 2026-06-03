@@ -16,6 +16,7 @@ import ConnectivityCheckScreen from '../screens/ConnectivityCheckScreen';
 import DataCollectionScreen from '../screens/DataCollectionScreen';
 import ConnectivityDiagnosisScreen from '../screens/ConnectivityDiagnosisScreen';
 import NonJDMachineScreen from '../screens/NonJDMachineScreen';
+import JDMachineFormScreen from '../screens/JDMachineFormScreen';
 import CannotActScreen from '../screens/CannotActScreen';
 import OperationsCenterSurveyScreen from '../screens/OperationsCenterSurveyScreen';
 import { Organization, Machine } from '../types';
@@ -83,6 +84,7 @@ export type RootStackParamList = {
       description?: string;
     };
   };
+  JDMachineForm: { prefillPin?: string };
   CannotAct: { machine: Machine; org: Organization };
   OperationsCenterSurvey: { activityId: number; org: Organization; doneTitle: string; doneSub: string };
 };
@@ -307,6 +309,11 @@ export default function AppNavigator() {
               name="NonJDMachine"
               component={NonJDMachineScreen}
               options={{ title: 'Máquina Não John Deere' }}
+            />
+            <Stack.Screen
+              name="JDMachineForm"
+              component={JDMachineFormScreen}
+              options={{ title: '🟡 Cadastrar Máquina JD' }}
             />
             <Stack.Screen
               name="CannotAct"
