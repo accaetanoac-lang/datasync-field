@@ -409,6 +409,11 @@ router.put('/:id/cancel', async (req: Request, res: Response): Promise<void> => 
 
   const { cancel_reason } = req.body as { cancel_reason?: string };
 
+  if (!cancel_reason || !cancel_reason.trim()) {
+    res.status(400).json({ error: 'cancel_reason is required' });
+    return;
+  }
+
   const existing = await queryOne<{ id: number }>(
     'SELECT id FROM activities WHERE id = $1',
     [activityId]

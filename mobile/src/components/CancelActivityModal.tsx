@@ -11,14 +11,21 @@ interface Props {
 
 export default function CancelActivityModal({ visible, onConfirm, onDismiss }: Props) {
   const [reason, setReason] = useState('');
+  const [showError, setShowError] = useState(false);
 
   const handleConfirm = () => {
+    if (!reason.trim()) {
+      setShowError(true);
+      return;
+    }
     onConfirm(reason.trim());
     setReason('');
+    setShowError(false);
   };
 
   const handleDismiss = () => {
     setReason('');
+    setShowError(false);
     onDismiss();
   };
 
@@ -29,20 +36,26 @@ export default function CancelActivityModal({ visible, onConfirm, onDismiss }: P
           <Text style={styles.title}>Cancelar atendimento?</Text>
           <Text style={styles.subtitle}>A máquina voltará para a lista de pendentes.</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, showError && styles.inputError]}
             value={reason}
-            onChangeText={setReason}
-            placeholder="Motivo (opcional)"
+            onChangeText={(t) => { setReason(t); if (t.trim()) setShowError(false); }}
+            placeholder="Motivo do cancelamento (obrigatório)"
             placeholderTextColor="#aaa"
             multiline
             numberOfLines={2}
             textAlignVertical="top"
           />
+          {showError && (
+            <Text style={styles.errorText}>Informe o motivo para cancelar</Text>
+          )}
           <View style={styles.buttons}>
             <TouchableOpacity style={styles.btnNo} onPress={handleDismiss}>
               <Text style={styles.btnNoText}>Não</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.btnYes} onPress={handleConfirm}>
+            <TouchableOpacity
+              style={[styles.btnYes, !reason.trim() && styles.btnYesDisabled]}
+              onPress={handleConfirm}
+            >
               <Text style={styles.btnYesText}>Sim, cancelar</Text>
             </TouchableOpacity>
           </View>
@@ -88,6 +101,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   btnNoText:  { color: '#555', fontWeight: '600', fontSize: 15 },
+  inputError: { borderColor: '#ef4444' },
+  errorText:  { fontSize: 12, color: '#ef4444', marginTop: -8 },
+
   btnYes: {
     flex: 1,
     backgroundColor: '#ef4444',
@@ -95,5 +111,6 @@ const styles = StyleSheet.create({
     padding: 14,
     alignItems: 'center',
   },
+  btnYesDisabled: { backgroundColor: '#fca5a5' },
   btnYesText: { color: '#fff', fontWeight: '700', fontSize: 15 },
 });
