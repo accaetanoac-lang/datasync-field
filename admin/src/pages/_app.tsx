@@ -42,6 +42,11 @@ export default function App({ Component, pageProps }: AppProps) {
   // Avoid flashing the layout while redirecting unauthenticated users
   if (!isLogin && !authChecked) return null;
 
+  function handleLogout() {
+    localStorage.removeItem('admin_token');
+    router.replace('/login');
+  }
+
   return (
     <>
       <Head>
@@ -60,7 +65,7 @@ export default function App({ Component, pageProps }: AppProps) {
               <div className="text-xl font-bold text-jd-yellow">DataSync</div>
               <div className="text-xs text-green-200 tracking-widest">FIELD ADMIN</div>
             </div>
-            <nav className="flex flex-col gap-1 px-3">
+            <nav className="flex flex-col gap-1 px-3 flex-1">
               {NAV.map((item) => (
                 <Link
                   key={item.href}
@@ -75,6 +80,15 @@ export default function App({ Component, pageProps }: AppProps) {
                 </Link>
               ))}
             </nav>
+            <div className="px-3 mt-4 border-t border-white/20 pt-4">
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="w-full px-4 py-2.5 rounded-lg text-sm font-medium text-green-100 hover:bg-white/10 hover:text-white transition-colors text-left"
+              >
+                Sair
+              </button>
+            </div>
           </aside>
 
           {/* Main */}
