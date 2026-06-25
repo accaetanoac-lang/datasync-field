@@ -58,14 +58,16 @@ export default function App({ Component, pageProps }: AppProps) {
       {isLogin ? (
         <Component {...pageProps} />
       ) : (
-        <div className="min-h-screen bg-gray-50 flex">
-          {/* Sidebar */}
-          <aside className="w-56 bg-jd-green text-white flex flex-col py-6 shadow-lg flex-shrink-0">
-            <div className="px-6 mb-8">
+        <div className="h-screen bg-gray-50 flex overflow-hidden">
+          {/* Sidebar fixa — não rola com o conteúdo */}
+          <aside className="w-56 bg-jd-green text-white flex flex-col shadow-lg flex-shrink-0">
+            <div className="flex-shrink-0 px-6 py-6">
               <div className="text-xl font-bold text-jd-yellow">DataSync</div>
               <div className="text-xs text-green-200 tracking-widest">FIELD ADMIN</div>
             </div>
-            <nav className="flex flex-col gap-1 px-3 flex-1">
+
+            {/* Nav com scroll interno se a lista ultrapassar a altura disponível */}
+            <nav className="flex-1 overflow-y-auto flex flex-col gap-1 px-3">
               {NAV.map((item) => (
                 <Link
                   key={item.href}
@@ -80,7 +82,9 @@ export default function App({ Component, pageProps }: AppProps) {
                 </Link>
               ))}
             </nav>
-            <div className="px-3 mt-4 border-t border-white/20 pt-4">
+
+            {/* Botão Sair sempre visível no rodapé */}
+            <div className="flex-shrink-0 px-3 py-4 border-t border-white/10">
               <button
                 type="button"
                 onClick={handleLogout}
@@ -91,7 +95,7 @@ export default function App({ Component, pageProps }: AppProps) {
             </div>
           </aside>
 
-          {/* Main */}
+          {/* Conteúdo principal com scroll independente */}
           <main className="flex-1 overflow-auto p-8">
             <Component {...pageProps} />
           </main>
